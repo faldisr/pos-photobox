@@ -1,4 +1,4 @@
-name: Build and Deploy Next.js Server to Rumahweb
+name: Deploy Next.js Static Export to Rumahweb
 
 on:
   push:
@@ -6,41 +6,36 @@ on:
       - main
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Ambil Kode dari Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js di GitHub
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: 20
+          cache: npm
 
       - name: Install Dependencies
         run: npm ci
 
-      - name: Build Project
+      - name: Build Static Website
         run: npm run build
 
-      # STEP KRUSIAL: Hapus devDependencies, sisakan modul inti produksi (termasuk Next & Prisma)
-      - name: Bersihkan Modul Development (Prune)
-        run: npm prune --production
-
-      - name: Kirim File Produksi ke Rumahweb via FTP
+      - name: Upload Folder out ke Rumahweb
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          # Pastikan file dikirim langsung ke folder aplikasi kamu di bawah public_html
+
           server-dir: public_html/orijinself-photo.com/orijinself-photo/
-          # File/Folder yang tidak perlu di-upload ke hosting agar kuota Inodes aman
+
+          local-dir: ./out/
+
           exclude: |
             **/.git*
-            **/.git*/**
-            **/node_modules/.cache/**
-            README.md
-            .gitignore
+            **/.github/**
