@@ -1,4 +1,4 @@
-name: Deploy Next.js Static Export to Rumahweb
+name: Deploy Fullstack Next.js to Rumahweb
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -22,10 +22,13 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Build Static Website
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build Next.js
         run: npm run build
 
-      - name: Upload Folder out ke Rumahweb
+      - name: Upload Project via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
@@ -34,8 +37,10 @@ jobs:
 
           server-dir: public_html/orijinself-photo.com/orijinself-photo/
 
-          local-dir: ./out/
-
           exclude: |
             **/.git*
             **/.github/**
+            **/node_modules/.cache/**
+            **/.next/cache/**
+            README.md
+            .gitignore
