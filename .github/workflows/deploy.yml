@@ -36,7 +36,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           # Pastikan file dikirim langsung ke folder aplikasi kamu di bawah public_html
-          server-dir: public_html/orijinself-photo/
+          server-dir: public_html/orijinself-photo.com/
           # File/Folder yang tidak perlu di-upload ke hosting agar kuota Inodes aman
           exclude: |
             **/.git*
