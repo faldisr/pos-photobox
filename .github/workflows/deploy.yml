@@ -17,6 +17,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Install Dependencies
         run: npm ci
@@ -24,12 +25,22 @@ jobs:
       - name: Build Project
         run: npm run build
 
+      # STEP KRUSIAL: Hapus devDependencies, sisakan modul inti produksi (termasuk Next & Prisma)
+      - name: Bersihkan Modul Development (Prune)
+        run: npm prune --production
+
       - name: Kirim File Produksi ke Rumahweb via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          # Bagian ini penting: Kita kirim file proyek inti, folder hasil build, dan node_modules
-          # secara default akan mengirimkan seluruh isi direktori kerja saat ini
-          server-dir: ./
+          # Pastikan file dikirim langsung ke folder aplikasi kamu di bawah public_html
+          server-dir: public_html/orijinself-photo.com/orijinself-photo/
+          # File/Folder yang tidak perlu di-upload ke hosting agar kuota Inodes aman
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/.cache/**
+            README.md
+            .gitignore
