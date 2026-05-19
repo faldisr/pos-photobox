@@ -1,4 +1,4 @@
-name: Deploy Fullstack Next.js to Rumahweb
+name: Deploy Next.js to Rumahweb
 
 on:
   push:
@@ -13,34 +13,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Install Dependencies
         run: npm ci
 
-      - name: Generate Prisma Client
+      - name: Prisma Generate
         run: npx prisma generate
 
       - name: Build Next.js
         run: npm run build
 
-      - name: Upload Project via FTP
+      - name: Upload via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
 
-          server-dir: public_html/orijinself-photo.com/orijinself-photo/
+          protocol: ftps
+          port: 21
+
+          server-dir: public_html/
 
           exclude: |
             **/.git*
             **/.github/**
             **/node_modules/.cache/**
             **/.next/cache/**
-            README.md
-            .gitignore
