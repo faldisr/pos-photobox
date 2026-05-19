@@ -1,4 +1,4 @@
-name: Deploy Next.js to Rumahweb
+name: Deploy Fullstack Next.js to Rumahweb via SFTP
 
 on:
   push:
@@ -10,37 +10,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install Dependencies
         run: npm ci
 
-      - name: Prisma Generate
+      - name: Generate Prisma Client
         run: npx prisma generate
 
       - name: Build Next.js
         run: npm run build
 
-      - name: Upload via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      - name: Deploy via SFTP
+        uses: Dylan700/sftp-upload-action@latest
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
 
-          protocol: ftps
-          port: 21
+          port: 22
 
-          server-dir: public_html/
-
-          exclude: |
-            **/.git*
-            **/.github/**
-            **/node_modules/.cache/**
-            **/.next/cache/**
+          uploads: |
+            ./ => /home/orie6354/public_html/
