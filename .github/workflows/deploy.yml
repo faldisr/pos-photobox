@@ -1,9 +1,9 @@
-name: Build and Deploy to Rumahweb
+name: Build and Deploy Next.js Server to Rumahweb
 
 on:
   push:
     branches:
-      - main # Proses berjalan tiap kali Anda melakukan push ke branch main
+      - main
 
 jobs:
   build-and-deploy:
@@ -13,22 +13,23 @@ jobs:
       - name: Ambil Kode dari Repository
         uses: actions/checkout@v4
 
-      - name: Pinjam Node.js dari GitHub
+      - name: Setup Node.js di GitHub
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Dependencies (Di Server GitHub)
+      - name: Install Dependencies
         run: npm ci
 
-      - name: Build Project (Di Server GitHub)
+      - name: Build Project
         run: npm run build
 
-      - name: Kirim File Hasil Build ke Rumahweb via FTP
+      - name: Kirim File Produksi ke Rumahweb via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./out/ # Folder hasil build Next.js statis
-          server-dir: ./ # Akan langsung masuk ke folder yang diatur di FTP cPanel
+          # Bagian ini penting: Kita kirim file proyek inti, folder hasil build, dan node_modules
+          # secara default akan mengirimkan seluruh isi direktori kerja saat ini
+          server-dir: ./
