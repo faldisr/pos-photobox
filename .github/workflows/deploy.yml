@@ -1,4 +1,4 @@
-name: Deploy Fullstack Next.js to Rumahweb via SFTP
+name: Build and Deploy Next.js Server to Rumahweb
 
 on:
   push:
@@ -6,36 +6,41 @@ on:
       - main
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Ambil Kode dari Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js di GitHub
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install Dependencies
         run: npm ci
 
-      - name: Generate Prisma Client
-        run: npx prisma generate
-
-      - name: Build Next.js
+      - name: Build Project
         run: npm run build
 
-      - name: Deploy via SFTP
-        uses: Dylan700/sftp-upload-action@latest
+      # STEP KRUSIAL: Hapus devDependencies, sisakan modul inti produksi (termasuk Next & Prisma)
+      - name: Bersihkan Modul Development (Prune)
+        run: npm prune --production
+
+      - name: Kirim File Produksi ke Rumahweb via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-
-          port: 22
-
-          uploads: |
-            ./ => /home/orie6354/public_html/
+          # Pastikan file dikirim langsung ke folder aplikasi kamu di bawah public_html
+          server-dir: public_html/orijinself-photo/
+          # File/Folder yang tidak perlu di-upload ke hosting agar kuota Inodes aman
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/.cache/**
+            README.md
+            .gitignore
