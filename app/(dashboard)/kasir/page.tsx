@@ -33,9 +33,18 @@ export type ActiveShift = {
   startTime: string
 }
 
+export type BranchInfo = {
+  id: string
+  name: string
+  address?: string | null
+  phone?: string | null
+  city?: string | null
+}
+
 export default function KasirPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [activeShift, setActiveShift] = useState<ActiveShift | null>(null)
+  const [branchInfo, setBranchInfo] = useState<BranchInfo | null>(null)
   const [loadingShift, setLoadingShift] = useState(true)
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [endDialogOpen, setEndDialogOpen] = useState(false)
@@ -59,6 +68,22 @@ export default function KasirPage() {
   useEffect(() => {
     fetchActiveShift()
   }, [fetchActiveShift])
+
+  useEffect(() => {
+    if (!activeShift?.branchId) return
+    const fetchBranch = async () => {
+      try {
+        const res = await fetch(`/api/settings/branches/${activeShift.branchId}`)
+        if (res.ok) {
+          const data = await res.json()
+          setBranchInfo(data)
+        }
+      } catch {
+        // silent
+      }
+    }
+    fetchBranch()
+  }, [activeShift?.branchId])
 
   const addToCart = (item: Omit<CartItem, "quantity">) => {
     setCart((prev) => {
@@ -136,6 +161,7 @@ export default function KasirPage() {
           <CartPanel
             cart={cart}
             activeShift={activeShift}
+            branchInfo={branchInfo}
             onUpdateQuantity={updateQuantity}
             onRemove={removeFromCart}
             onClearCart={clearCart}
@@ -160,6 +186,7 @@ export default function KasirPage() {
             <CartPanel
               cart={cart}
               activeShift={activeShift}
+              branchInfo={branchInfo}
               onUpdateQuantity={updateQuantity}
               onRemove={removeFromCart}
               onClearCart={clearCart}

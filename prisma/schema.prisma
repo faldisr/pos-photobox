@@ -437,8 +437,6 @@ model Promo {
   value           Decimal   @db.Decimal(10, 2)
   
   // Validity
-  startDate       DateTime
-  endDate         DateTime
   isActive        Boolean   @default(true)
   
   // Rules

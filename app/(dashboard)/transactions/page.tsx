@@ -469,6 +469,15 @@ function TransactionDetailDialog({
                   </span>
                 </div>
               )}
+              {/* Info promo: tampilkan badge kode promo jika ada */}
+              {transaction.promoCode && (
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Kode Promo</span>
+                  <Badge variant="secondary" className="font-mono text-xs">
+                    {transaction.promoCode}
+                  </Badge>
+                </div>
+              )}
               <Separator />
               <div className="flex justify-between font-bold text-base">
                 <span>Total</span>
@@ -802,6 +811,14 @@ export default function TransactionsPage() {
                     {trx.isPrinted && (
                       <div className="mt-0.5 w-full border-t border-orange-200 pt-0.5 text-[10px] text-orange-400">
                         Sudah dicetak
+                      </div>
+                    )}
+                    {/* Badge promo di bawah no. transaksi */}
+                    {trx.promoCode && (
+                      <div className="mt-0.5">
+                        <span className="inline-flex items-center rounded px-1 py-0 text-[10px] font-medium bg-green-100 text-green-700 border border-green-200">
+                          PROMO: {trx.promoCode}
+                        </span>
                       </div>
                     )}
                   </TableCell>

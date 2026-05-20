@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { printReceipt } from "@/lib/print-receipt"
-import type { CartItem } from "@/app/(dashboard)/kasir/page"
+import type { CartItem, BranchInfo } from "@/app/(dashboard)/kasir/page"
 
 type PaymentMethod = "CASH" | "QRIS" | "DEBIT_CARD" | "TRANSFER"
 
@@ -39,6 +39,7 @@ type PaymentDialogProps = {
   promoDiscount: number
   notes: string
   shiftId: string
+  branch?: BranchInfo | null
   // ── Tambahan inventory ──────────────────────────────────────────────────────
   paperId?: string    // inventoryItem.id — kertas yang dipakai
   printQty?: number   // jumlah lembar yang dicetak
@@ -91,6 +92,7 @@ export function PaymentDialog({
   promoDiscount,
   notes,
   shiftId,
+  branch,
   paperId,
   printQty,
   onSuccess,
@@ -193,6 +195,7 @@ export function PaymentDialog({
         change,
         promoCode,
         notes,
+        branch: branch ?? null,
         isPrinted: false,
         queueNumber,
         onAfterPrint: async () => {

@@ -73,6 +73,8 @@ type TransactionRow = {
   paymentMethod: string
   paymentStatus: string
   status: string
+  promoCode: string | null
+  promoDiscount: number
   items: TransactionItem[]
 }
 
@@ -358,16 +360,17 @@ export default function ReportsPage() {
     if (activeTab === "transaction") {
       autoTable(doc, {
         startY:  28,
-        head: [["No. Transaksi", "Pelanggan", "Kasir", "Metode", "Total", "Status", "Waktu"]],
-body: transactions.map((t) => [
-  t.transactionNo,
-  t.customer?.name ?? "-",
-  t.cashier.name,
-  PAYMENT_LABELS[t.paymentMethod] ?? t.paymentMethod,
-  formatCurrency(Number(t.total)),
-  STATUS_LABELS[t.status] ?? t.status,
-  formatDateTime(t.createdAt),
-]),
+        head: [["No. Transaksi", "Pelanggan", "Kasir", "Metode", "Kode Promo", "Total", "Status", "Waktu"]],
+        body: transactions.map((t) => [
+          t.transactionNo,
+          t.customer?.name ?? "-",
+          t.cashier.name,
+          PAYMENT_LABELS[t.paymentMethod] ?? t.paymentMethod,
+          t.promoCode ?? "-",
+          formatCurrency(Number(t.total)),
+          STATUS_LABELS[t.status] ?? t.status,
+          formatDateTime(t.createdAt),
+        ]),
         styles:     { fontSize: 8 },
         headStyles: { fillColor: [30, 30, 30] },
       })
@@ -430,16 +433,17 @@ body: transactions.map((t) => [
     if (activeTab === "transaction") {
       sheetName = "Transaksi"
       rows = [
-        ["No. Transaksi", "Pelanggan", "Kasir", "Metode Pembayaran", "Total", "Status", "Waktu"],
-...transactions.map((t) => [
-  t.transactionNo,
-  t.customer?.name ?? "-",
-  t.cashier.name,
-  PAYMENT_LABELS[t.paymentMethod] ?? t.paymentMethod,
-  Number(t.total),
-  STATUS_LABELS[t.status] ?? t.status,
-  formatDateTime(t.createdAt),
-]),
+        ["No. Transaksi", "Pelanggan", "Kasir", "Metode Pembayaran", "Kode Promo", "Total", "Status", "Waktu"],
+        ...transactions.map((t) => [
+          t.transactionNo,
+          t.customer?.name ?? "-",
+          t.cashier.name,
+          PAYMENT_LABELS[t.paymentMethod] ?? t.paymentMethod,
+          t.promoCode ?? "-",
+          Number(t.total),
+          STATUS_LABELS[t.status] ?? t.status,
+          formatDateTime(t.createdAt),
+        ]),
       ]
     }
 
@@ -621,6 +625,8 @@ body: transactions.map((t) => [
                   <TableHead className="min-w-[100px] text-center">Kasir</TableHead>
                   <TableHead className="min-w-[110px] text-center">Total</TableHead>
                   <TableHead className="min-w-[100px] text-center">Pembayaran</TableHead>
+                  {/* Kolom Kode Promo */}
+                  <TableHead className="min-w-[110px] text-center">Kode Promo</TableHead>
                   {/* Perubahan 3 — Kolom Status */}
                   <TableHead className="min-w-[90px] text-center">Status</TableHead>
                   <TableHead className="min-w-[140px] text-center">Waktu</TableHead>
@@ -629,13 +635,13 @@ body: transactions.map((t) => [
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                       Memuat data...
                     </TableCell>
                   </TableRow>
                 ) : transactions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                       Tidak ada data transaksi
                     </TableCell>
                   </TableRow>
@@ -656,6 +662,16 @@ body: transactions.map((t) => [
                       </TableCell>
                       <TableCell className="text-sm text-center">
                         {PAYMENT_LABELS[trx.paymentMethod] ?? trx.paymentMethod}
+                      </TableCell>
+                      {/* Cell Kode Promo */}
+                      <TableCell className="text-center">
+                        {trx.promoCode ? (
+                          <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-green-100 text-green-700 border border-green-200 font-mono">
+                            {trx.promoCode}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">-</span>
+                        )}
                       </TableCell>
                       {/* Perubahan 3 — Cell Status sama persis dengan transactions/page.tsx */}
                       <TableCell className="text-center">

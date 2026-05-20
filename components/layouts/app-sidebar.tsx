@@ -13,6 +13,7 @@ import {
   Settings,
   Store,
   ShoppingBag,
+  Tag,
 } from "lucide-react"
 
 import {
@@ -86,6 +87,12 @@ const allMenuItems = [
         icon: Store,
         href: "/settings/branches",
         roles: ["SUPER_ADMIN", "BRANCH_MANAGER"],
+      },
+      {
+        title: "Promo",
+        icon: Tag,
+        href: "/admin/promos",
+        roles: ["SUPER_ADMIN"],
       },
     ],
   },
