@@ -10,56 +10,44 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout Repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
 
-      # Install Dependencies
       - name: Install Dependencies
         run: npm ci
 
-      # Generate Prisma Client
       - name: Generate Prisma Client
         run: npx prisma generate
 
-      # Build Next.js
       - name: Build Next.js
         run: npm run build
 
-      # Prepare Standalone Build
-      - name: Prepare Lightweight Build
+      - name: Prepare Standalone Build
         run: |
           rm -rf deploy
           mkdir -p deploy
 
-          # Copy standalone output
           cp -r .next/standalone/* deploy/
 
-          # Copy static files
           mkdir -p deploy/.next
           cp -r .next/static deploy/.next/static
 
-          # Copy public folder
           if [ -d public ]; then
             cp -r public deploy/public
           fi
 
-          # Trigger restart for Passenger/Webuzo
           mkdir -p deploy/tmp
           date > deploy/tmp/restart.txt
 
-      # Check deploy size
       - name: Check Deploy Size
         run: du -sh deploy
 
-      # Upload via FTP
       - name: Upload via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -69,12 +57,15 @@ jobs:
 
           protocol: ftp
           port: 21
-          passive: true
 
           local-dir: deploy/
           server-dir: /home/developer/public_html/pos/
 
           dangerous-clean-slate: false
+
+          timeout: 120000
+
+          log-level: verbose
 
           exclude: |
             **/.git*
