@@ -1,4 +1,4 @@
-name: Deploy Next.js Webuzo
+name: Deploy Next.js to Webuzo
 
 on:
   push:
@@ -10,53 +10,72 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      # Setup Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
 
+      # Install Dependency
       - name: Install Dependencies
         run: npm ci
 
-      - name: Generate Prisma
+      # Generate Prisma
+      - name: Generate Prisma Client
         run: npx prisma generate
 
-      - name: Build
+      # Build Next.js
+      - name: Build Next.js
         run: npm run build
 
-      - name: Prepare Standalone
+      # Prepare Standalone Build
+      - name: Prepare Lightweight Build
         run: |
+          rm -rf deploy
           mkdir deploy
+
+          # standalone output
           cp -r .next/standalone/* deploy/
 
+          # static files
           mkdir -p deploy/.next
           cp -r .next/static deploy/.next/static
 
+          # public folder
           if [ -d public ]; then
             cp -r public deploy/public
           fi
 
-      - name: Create Restart Trigger
-        run: |
+          # auto restart trigger for webuzo/passenger
           mkdir -p deploy/tmp
           date > deploy/tmp/restart.txt
 
-      - name: Upload FTP
+      # Upload FTP
+      - name: Upload via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: 101.50.1.12
           username: developer
           password: ${{ secrets.FTP_PASSWORD }}
 
-          protocol: ftp
+          protocol: ftps
+          security: loose
           port: 21
+
+          timeout: 600000
 
           local-dir: deploy/
           server-dir: /home/developer/public_html/pos/
 
+          dangerous-clean-slate: false
+
           exclude: |
             **/.git*
             **/.github/**
+            **/node_modules/**
+            README.md
