@@ -21,11 +21,11 @@ jobs:
           node-version: "22"
           cache: npm
 
-      # Install Dependency
+      # Install Dependencies
       - name: Install Dependencies
         run: npm ci
 
-      # Generate Prisma
+      # Generate Prisma Client
       - name: Generate Prisma Client
         run: npx prisma generate
 
@@ -37,25 +37,29 @@ jobs:
       - name: Prepare Lightweight Build
         run: |
           rm -rf deploy
-          mkdir deploy
+          mkdir -p deploy
 
-          # standalone output
+          # Copy standalone output
           cp -r .next/standalone/* deploy/
 
-          # static files
+          # Copy static files
           mkdir -p deploy/.next
           cp -r .next/static deploy/.next/static
 
-          # public folder
+          # Copy public folder
           if [ -d public ]; then
             cp -r public deploy/public
           fi
 
-          # auto restart trigger for webuzo/passenger
+          # Trigger restart for Passenger/Webuzo
           mkdir -p deploy/tmp
           date > deploy/tmp/restart.txt
 
-      # Upload FTP
+      # Check deploy size
+      - name: Check Deploy Size
+        run: du -sh deploy
+
+      # Upload via FTP
       - name: Upload via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
@@ -63,11 +67,9 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
 
-          protocol: ftps
-          security: loose
+          protocol: ftp
           port: 21
-
-          timeout: 600000
+          passive: true
 
           local-dir: deploy/
           server-dir: /home/developer/public_html/pos/
