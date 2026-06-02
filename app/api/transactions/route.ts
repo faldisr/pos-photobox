@@ -128,6 +128,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Validasi promo sebelum transaksi dibuat
+    if (promoCode) {
+      const promo = await prisma.promo.findUnique({
+        where: { code: promoCode },
+      })
+
+      if (!promo || !promo.isActive) {
+        return NextResponse.json({ error: "Kode promo tidak valid" }, { status: 400 })
+      }
+
+      if (promo.usageLimit !== null && promo.usageCount >= promo.usageLimit) {
+        return NextResponse.json({ error: "Kuota promo sudah habis" }, { status: 400 })
+      }
+    }
+
     // Generate nomor antrian harian dari DB
     const today = new Date()
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0)
@@ -231,6 +246,14 @@ export async function POST(request: NextRequest) {
             },
           })
         }
+      }
+
+      // Increment usageCount promo jika ada kode promo
+      if (promoCode) {
+        await tx.promo.update({
+          where: { code: promoCode },
+          data: { usageCount: { increment: 1 } },
+        })
       }
 
       return trx
