@@ -136,6 +136,7 @@ export default function KasirPage() {
           <CartPanel
             cart={cart}
             activeShift={activeShift}
+            branchInfo={branchInfo}
             onUpdateQuantity={updateQuantity}
             onRemove={removeFromCart}
             onClearCart={clearCart}
