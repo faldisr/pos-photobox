@@ -32,12 +32,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { PaymentDialog } from "@/components/kasir/payment-dialog"
-import type { CartItem, ActiveShift } from "@/app/(dashboard)/kasir/page"
+import type { CartItem, ActiveShift, BranchInfo } from "@/app/(dashboard)/kasir/page"
 
 type CartPanelProps = {
   cart: CartItem[]
   activeShift: ActiveShift
-  branchInfo: any | null
+  branchInfo: BranchInfo | null
   onUpdateQuantity: (id: string, quantity: number) => void
   onRemove: (id: string) => void
   onClearCart: () => void
