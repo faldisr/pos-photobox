@@ -1,4 +1,4 @@
-name: Deploy Lightweight Next.js to Rumahweb
+name: Deploy Next.js to Webuzo
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - name: Install Dependencies
@@ -28,11 +28,13 @@ jobs:
       - name: Build Next.js
         run: npm run build
 
-      - name: Prepare Lightweight Build
+      - name: Prepare Standalone Build
         run: |
-          mkdir deploy
+          rm -rf deploy
+          mkdir -p deploy
 
           cp -r .next/standalone/* deploy/
+
           mkdir -p deploy/.next
           cp -r .next/static deploy/.next/static
 
@@ -40,9 +42,11 @@ jobs:
             cp -r public deploy/public
           fi
 
-          if [ -f .env ]; then
-            cp .env deploy/.env
-          fi
+          mkdir -p deploy/tmp
+          date > deploy/tmp/restart.txt
+
+      - name: Check Deploy Size
+        run: du -sh deploy
 
       - name: Upload via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -55,8 +59,16 @@ jobs:
           port: 21
 
           local-dir: deploy/
-          server-dir: /
+          server-dir: /home/developer/public_html/pos/
+
+          dangerous-clean-slate: false
+
+          timeout: 120000
+
+          log-level: verbose
 
           exclude: |
             **/.git*
             **/.github/**
+            **/node_modules/**
+            README.md

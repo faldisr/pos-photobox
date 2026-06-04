@@ -78,6 +78,8 @@ export async function POST(request: NextRequest) {
         usageLimit:  usageLimit  ? Number(usageLimit)  : null,
         isActive:    true,
         usageCount:  0,
+        startDate: new Date(body.startDate), 
+      endDate: new Date(body.endDate),
       },
     })
 
