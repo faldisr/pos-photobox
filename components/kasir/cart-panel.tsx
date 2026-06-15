@@ -437,7 +437,7 @@ export function CartPanel({
               >
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
-                  <span>{notes ? "Catatan ditambahkan" : "Tambah Catatan"}</span>
+                  <span>{notes ? "ID Foto Ditambahkan" : "Tambah ID Foto Pelanggan"}</span>
                 </div>
                 {notes && (
                   <Badge variant="secondary" className="text-xs">Terisi</Badge>
@@ -446,7 +446,7 @@ export function CartPanel({
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-2 rounded-lg border bg-background p-3">
               <Textarea
-                placeholder="Catatan untuk transaksi ini..."
+                placeholder="tambahkan id foto pelanggan..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="text-sm resize-none"

@@ -137,7 +137,7 @@ function generateReceiptHtml(params: PrintReceiptParams & { resolvedQueueNumber:
 
   const notesHtml = notes
     ? `<div class="divider"></div>
-       <div class="notes">Catatan: ${notes}</div>`
+       <div class="notes">ID Foto Pelanggan: ${notes}</div>`
     : ""
 
   const branchSubHtml = branch
