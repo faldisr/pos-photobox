@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import {
   Trash2,
   Minus,
@@ -86,34 +86,33 @@ export function CartPanel({
   const [paperOptions, setPaperOptions] = useState<InventoryOption[]>([])
   const [selectedPaperId, setSelectedPaperId] = useState<string>("")   // itemId
   const [printQty, setPrintQty] = useState<string>("")
-
-  const fetchPaperOptions = useCallback(async () => {
-    if (!activeShift?.branchId) return
-    try {
-      const res = await fetch(`/api/inventory?branchId=${activeShift.branchId}`)
-      if (!res.ok) return
-      const json = await res.json()
-
-      // Hanya tampilkan item kategori PAPER yang masih ada stok
-      const papers: InventoryOption[] = (json.data ?? [] as RawInventoryItem[])
-        .filter((inv: RawInventoryItem) => inv.item.category === "PAPER" && inv.quantity > 0)
-        .map((inv: RawInventoryItem) => ({
-          id: inv.id,
-          itemId: inv.item.id,
-          name: inv.item.name,
-          quantity: inv.quantity,
-          unit: inv.item.unit,
-        }))
-
-      setPaperOptions(papers)
-    } catch {
-      // silent — fitur inventory optional, tidak gagalkan kasir
-    }
-  }, [activeShift.branchId])
+  const [paperRefreshKey, setPaperRefreshKey] = useState(0)
 
   useEffect(() => {
-    fetchPaperOptions()
-  }, [fetchPaperOptions])
+    if (!activeShift?.branchId) return
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/inventory?branchId=${activeShift.branchId}`)
+        if (!res.ok) return
+        const json = await res.json()
+
+        // Hanya tampilkan item kategori PAPER yang masih ada stok
+        const papers: InventoryOption[] = (json.data ?? [] as RawInventoryItem[])
+          .filter((inv: RawInventoryItem) => inv.item.category === "PAPER" && inv.quantity > 0)
+          .map((inv: RawInventoryItem) => ({
+            id: inv.id,
+            itemId: inv.item.id,
+            name: inv.item.name,
+            quantity: inv.quantity,
+            unit: inv.item.unit,
+          }))
+
+        setPaperOptions(papers)
+      } catch {
+        // silent — fitur inventory optional, tidak gagalkan kasir
+      }
+    })()
+  }, [activeShift.branchId, paperRefreshKey])
 
   const selectedPaper = paperOptions.find((p) => p.itemId === selectedPaperId)
 
@@ -437,7 +436,7 @@ export function CartPanel({
               >
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
-                  <span>{notes ? "ID Foto Ditambahkan" : "Tambah ID Foto Pelanggan"}</span>
+                  <span>{notes ? "ID Foto ditambahkan" : "Tambah ID Foto Pelanggan"}</span>
                 </div>
                 {notes && (
                   <Badge variant="secondary" className="text-xs">Terisi</Badge>
@@ -446,7 +445,7 @@ export function CartPanel({
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-2 rounded-lg border bg-background p-3">
               <Textarea
-                placeholder="tambahkan id foto pelanggan..."
+                placeholder="Masukkan ID foto pelanggan..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="text-sm resize-none"
@@ -524,7 +523,7 @@ export function CartPanel({
           setOpenNotes(false)
           setOpenPaper(false)
           // Refresh stok setelah transaksi
-          fetchPaperOptions()
+          setPaperRefreshKey((k) => k + 1)
         }}
       />
     </div>
