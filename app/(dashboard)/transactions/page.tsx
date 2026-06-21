@@ -331,20 +331,33 @@ function TransactionDetailDialog({
   branchCache: Record<string, Branch>
   onPrinted: (id: string) => void
 }) {
-  if (!transaction) return null
+  const [printing, setPrinting] = useState(false)
+if (!transaction) return null
+const branch = branchCache[transaction.branchId] ?? null
 
-  const branch = branchCache[transaction.branchId] ?? null
-
-  const handlePrint = () => {
-    try {
-      printReceipt({
-        ...buildPrintParams(transaction, branch),
-        onAfterPrint: () => onPrinted(transaction.id),
-      })
-    } catch {
-      toast.error("Popup diblokir browser. Izinkan popup untuk mencetak struk.")
+const handlePrint = async () => {
+  setPrinting(true)
+  try {
+    await printReceipt({
+      ...buildPrintParams(transaction, branch),
+      onAfterPrint: () => onPrinted(transaction.id),
+    })
+    toast.success("Struk berhasil dicetak")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg === "WEB_BT_NOT_SUPPORTED") {
+      toast.error("Browser tidak mendukung Bluetooth. Gunakan Chrome Android.")
+    } else if (msg.includes("User cancelled") || msg.includes("cancelled")) {
+      // User menutup picker — tidak perlu toast
+    } else if (msg === "BT_CONNECT_FAILED") {
+      toast.error("Gagal konek ke printer. Pastikan printer menyala dan tidak tersambung ke perangkat lain.")
+    } else {
+      toast.error("Gagal mencetak. Pastikan printer menyala dan Bluetooth aktif.")
     }
+  } finally {
+    setPrinting(false)
   }
+}
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -512,10 +525,10 @@ function TransactionDetailDialog({
         </ScrollArea>
 
         <div className="pt-3 border-t">
-          <Button className="w-full" onClick={handlePrint}>
-            <Printer className="mr-2 h-4 w-4" />
-            Cetak Struk
-          </Button>
+          <Button className="w-full" onClick={handlePrint} disabled={printing}>
+  <Printer className="mr-2 h-4 w-4" />
+  {printing ? "Mencetak..." : "Cetak Struk"}
+</Button>
         </div>
       </DialogContent>
     </Dialog>

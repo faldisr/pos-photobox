@@ -40,10 +40,8 @@ type PaymentDialogProps = {
   notes: string
   shiftId: string
   branch?: BranchInfo | null
-  // ── Tambahan inventory ──────────────────────────────────────────────────────
-  paperId?: string    // inventoryItem.id — kertas yang dipakai
-  printQty?: number   // jumlah lembar yang dicetak
-  // ───────────────────────────────────────────────────────────────────────────
+  paperId?: string
+  printQty?: number
   onSuccess: () => void
 }
 
@@ -100,6 +98,7 @@ export function PaymentDialog({
   const [method, setMethod] = useState<PaymentMethod>("CASH")
   const [paidAmount, setPaidAmount] = useState("")
   const [loading, setLoading] = useState(false)
+  const [printing, setPrinting] = useState(false)
   const [success, setSuccess] = useState(false)
   const [transactionNo, setTransactionNo] = useState("")
   const [transactionId, setTransactionId] = useState("")
@@ -132,28 +131,26 @@ export function PaymentDialog({
           customerName: customerName || null,
           customerPhone: customerPhone || null,
           items: cart.map((item) => ({
-            packageId: item.packageId,
+            packageId:  item.packageId,
             templateId: item.templateId,
-            addOnId: item.addOnId,
-            itemName: item.name,
-            itemType: item.type,
-            quantity: item.quantity,
-            price: item.price,
-            subtotal: item.price * item.quantity,
+            addOnId:    item.addOnId,
+            itemName:   item.name,
+            itemType:   item.type,
+            quantity:   item.quantity,
+            price:      item.price,
+            subtotal:   item.price * item.quantity,
           })),
           subtotal,
           discount,
           total,
-          paymentMethod: method,
-          paidAmount: method === "CASH" ? paid : total,
-          changeAmount: change,
-          promoCode: promoCode || null,
+          paymentMethod:  method,
+          paidAmount:     method === "CASH" ? paid : total,
+          changeAmount:   change,
+          promoCode:      promoCode || null,
           promoDiscount,
-          notes: notes || null,
-          // ── Tambahan inventory ──────────────────────────────────────────────
-          paperId: paperId || null,
-          printQty: printQty || null,
-          // ───────────────────────────────────────────────────────────────────
+          notes:          notes || null,
+          paperId:        paperId || null,
+          printQty:       printQty || null,
         }),
       })
 
@@ -175,43 +172,56 @@ export function PaymentDialog({
     }
   }
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    setPrinting(true)
     try {
-      printReceipt({
+      await printReceipt({
         transactionNo,
         transactionDate,
         customerName,
         customerPhone,
         items: cart.map((item) => ({
-          name: item.name,
+          name:     item.name,
           quantity: item.quantity,
-          price: item.price,
+          price:    item.price,
         })),
         subtotal,
         discount,
         total,
         paymentMethod: method,
-        paidAmount: paid,
+        paidAmount:    paid,
         change,
         promoCode,
         notes,
-        branch: branch ?? null,
-        isPrinted: false,
+        branch:      branch ?? null,
+        isPrinted:   false,
         queueNumber,
         onAfterPrint: async () => {
           try {
             await fetch(`/api/transactions/${transactionId}`, {
-              method: "PATCH",
+              method:  "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ isPrinted: true }),
+              body:    JSON.stringify({ isPrinted: true }),
             })
           } catch {
-            // silent
+            // silent — tidak gagalkan flow print
           }
         },
       })
-    } catch {
-      toast.error("Popup diblokir browser. Izinkan popup untuk mencetak struk.")
+      toast.success("Struk berhasil dicetak")
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg === "WEB_BT_NOT_SUPPORTED") {
+        toast.error("Browser tidak mendukung Bluetooth. Gunakan Chrome Android.")
+      } else if (msg.includes("User cancelled") || msg.includes("cancelled")) {
+        // User menutup picker — tidak perlu toast
+      } else if (msg === "BT_CONNECT_FAILED") {
+        toast.error("Gagal konek ke printer. Pastikan printer menyala dan tidak tersambung ke perangkat lain.")
+      } else {
+        toast.error("Gagal mencetak struk. Pastikan printer menyala dan Bluetooth aktif.")
+      }
+    } finally {
+      setPrinting(false)
     }
   }
 
@@ -255,9 +265,14 @@ export function PaymentDialog({
               </div>
             )}
             <div className="flex w-full gap-2 mt-2">
-              <Button variant="outline" className="flex-1" onClick={handlePrint}>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={handlePrint}
+                disabled={printing}
+              >
                 <Printer className="mr-2 h-4 w-4" />
-                Cetak Struk
+                {printing ? "Mencetak..." : "Cetak Struk"}
               </Button>
               <Button className="flex-1" onClick={handleClose}>
                 Transaksi Baru
