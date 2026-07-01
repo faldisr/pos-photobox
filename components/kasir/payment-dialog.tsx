@@ -175,6 +175,7 @@ export function PaymentDialog({
   const handlePrint = async () => {
     setPrinting(true)
     try {
+      const deviceId = localStorage.getItem("bt_active_printer_id") ?? undefined
       await printReceipt({
         transactionNo,
         transactionDate,
@@ -207,7 +208,7 @@ export function PaymentDialog({
             // silent — tidak gagalkan flow print
           }
         },
-      })
+      }, deviceId)
       toast.success("Struk berhasil dicetak")
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)

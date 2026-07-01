@@ -281,22 +281,34 @@ function buildReceiptBytes(
 const BT_SESSION_KEY = "bt_printer_id"
 
 /** Kirim bytes ke printer via Web Bluetooth, maks 512 byte per chunk */
-async function sendToPrinter(data: Uint8Array): Promise<void> {
+async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void> {
   if (!("bluetooth" in navigator)) {
     throw new Error("WEB_BT_NOT_SUPPORTED")
   }
 
   let device: BluetoothDevice | null = null
 
-  try {
-    // Coba pakai device dari session jika tersedia
-    const savedId = sessionStorage.getItem(BT_SESSION_KEY)
-    if (savedId) {
+  // Coba gunakan deviceId dari printer manager jika ada
+  if (deviceId) {
+    try {
       const devices = await navigator.bluetooth.getDevices()
-      device = devices.find((d) => d.id === savedId) ?? null
+      device = devices.find((d) => d.id === deviceId) ?? null
+    } catch {
+      // getDevices() mungkin tidak support di semua browser, abaikan
     }
-  } catch {
-    // getDevices() mungkin tidak support di semua browser, abaikan
+  }
+
+  if (!device) {
+    try {
+      // Coba pakai device dari session jika tersedia
+      const savedId = sessionStorage.getItem(BT_SESSION_KEY)
+      if (savedId) {
+        const devices = await navigator.bluetooth.getDevices()
+        device = devices.find((d) => d.id === savedId) ?? null
+      }
+    } catch {
+      // getDevices() mungkin tidak support di semua browser, abaikan
+    }
   }
 
   if (!device) {
@@ -339,11 +351,11 @@ async function sendToPrinter(data: Uint8Array): Promise<void> {
  * @throws "BT_CONNECT_FAILED"    — gagal konek ke printer
  * @throws Error lain dari Web Bluetooth API (user cancel, dll)
  */
-export async function printReceipt(params: PrintReceiptParams): Promise<void> {
+export async function printReceipt(params: PrintReceiptParams, deviceId?: string): Promise<void> {
   const resolvedQueueNumber = params.queueNumber ?? generateQueueNumber()
   const bytes = buildReceiptBytes({ ...params, resolvedQueueNumber })
 
-  await sendToPrinter(bytes)
+  await sendToPrinter(bytes, deviceId)
 
   params.onAfterPrint?.()
 }

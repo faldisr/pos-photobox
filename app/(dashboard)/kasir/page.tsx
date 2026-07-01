@@ -5,7 +5,8 @@ import { ProductPanel } from "@/components/kasir/product-panel"
 import { CartPanel } from "@/components/kasir/cart-panel"
 import { ShiftGuard } from "@/components/kasir/shift-guard"
 import { ShiftEndDialog } from "@/components/kasir/shift-end-dialog"
-import { ShoppingCart, StopCircle } from "lucide-react"
+import { PrinterManagerDialog } from "@/components/kasir/printer-manager-dialog"
+import { ShoppingCart, StopCircle, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -48,6 +49,7 @@ export default function KasirPage() {
   const [loadingShift, setLoadingShift] = useState(true)
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [endDialogOpen, setEndDialogOpen] = useState(false)
+  const [printerManagerOpen, setPrinterManagerOpen] = useState(false)
 
   const fetchActiveShift = useCallback(async () => {
     try {
@@ -138,15 +140,26 @@ export default function KasirPage() {
           {" · "}
           <span className="font-medium text-foreground">{activeShift.cashier.name}</span>
         </p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs text-destructive hover:text-destructive border-destructive/30 hover:border-destructive"
-          onClick={() => setEndDialogOpen(true)}
-        >
-          <StopCircle className="mr-1 h-3.5 w-3.5" />
-          Tutup Shift
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => setPrinterManagerOpen(true)}
+          >
+            <Printer className="mr-1 h-3.5 w-3.5" />
+            Printer
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs text-destructive hover:text-destructive border-destructive/30 hover:border-destructive"
+            onClick={() => setEndDialogOpen(true)}
+          >
+            <StopCircle className="mr-1 h-3.5 w-3.5" />
+            Tutup Shift
+          </Button>
+        </div>
       </div>
 
       {/* Konten kasir */}
@@ -204,6 +217,11 @@ export default function KasirPage() {
           setActiveShift(null)
           setCart([])
         }}
+      />
+
+      <PrinterManagerDialog
+        open={printerManagerOpen}
+        onOpenChange={setPrinterManagerOpen}
       />
     </div>
   )
