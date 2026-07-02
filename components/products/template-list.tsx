@@ -40,6 +40,7 @@ type Template = {
   category: string
   isActive: boolean
   isPopular: boolean
+  branches: { id: string }[]
 }
 
 export function TemplateList() {

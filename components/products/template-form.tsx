@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ImageUpload } from "@/components/ui/image-upload"
 
 const formSchema = z.object({
@@ -39,6 +40,13 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>
 
+type Branch = {
+  id: string
+  name: string
+  code: string
+  isActive: boolean
+}
+
 type TemplateData = {
   id?: string
   name?: string
@@ -48,6 +56,7 @@ type TemplateData = {
   thumbnailUrl?: string
   isActive?: boolean
   isPopular?: boolean
+  branches?: { id: string }[]
 }
 
 type TemplateFormProps = {
@@ -58,6 +67,23 @@ type TemplateFormProps = {
 
 export function TemplateForm({ template, onSuccess, onCancel }: TemplateFormProps) {
   const [loading, setLoading] = useState(false)
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>(
+    template?.branches?.map((b) => b.id) ?? []
+  )
+
+  useEffect(() => {
+    fetch("/api/settings/branches")
+      .then((res) => res.json())
+      .then((data: Branch[]) => setBranches(data.filter((b) => b.isActive)))
+      .catch(() => {})
+  }, [])
+
+  const toggleBranch = (branchId: string) => {
+    setSelectedBranchIds((prev) =>
+      prev.includes(branchId) ? prev.filter((id) => id !== branchId) : [...prev, branchId]
+    )
+  }
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -82,7 +108,10 @@ export function TemplateForm({ template, onSuccess, onCancel }: TemplateFormProp
       const res = await fetch(url, {
         method: template?.id ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          ...data,
+          branchIds: selectedBranchIds,
+        }),
       })
 
       if (res.ok) {
@@ -238,6 +267,30 @@ export function TemplateForm({ template, onSuccess, onCancel }: TemplateFormProp
               </FormItem>
             )}
           />
+        </div>
+
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="space-y-0.5">
+            <p className="text-sm font-medium leading-none">Cabang yang Menampilkan Template Ini</p>
+            <p className="text-sm text-muted-foreground">
+              Jika tidak ada cabang dipilih, template akan tampil di semua cabang.
+            </p>
+          </div>
+          {branches.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Memuat daftar cabang...</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {branches.map((branch) => (
+                <label key={branch.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={selectedBranchIds.includes(branch.id)}
+                    onCheckedChange={() => toggleBranch(branch.id)}
+                  />
+                  {branch.name}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2">

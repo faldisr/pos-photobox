@@ -11,6 +11,7 @@ export async function GET(
 
     const package_ = await prisma.package.findUnique({
       where: { id },
+      include: { branches: { select: { id: true } } },
     })
 
     if (!package_) {
@@ -40,6 +41,7 @@ export async function PUT(
       basePrice,
       photoCount,
       isActive,
+      branchIds,
     } = body
 
     // Check if package exists
@@ -72,9 +74,13 @@ export async function PUT(
         basePrice,
         photoCount,
         isActive,
+        branches: {
+          set: (Array.isArray(branchIds) ? branchIds : []).map((id: string) => ({ id })),
+        },
       },
     })
 
+    
     return NextResponse.json(package_)
   } catch (error) {
     console.error("Error updating package:", error)

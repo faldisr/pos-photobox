@@ -62,6 +62,9 @@ model Branch {
   transactions    Transaction[]
   shifts          Shift[]
   inventories     Inventory[]
+  packages        Package[]  @relation("PackageBranches")
+  templates       Template[] @relation("TemplateBranches")
+  addOns          AddOn[]    @relation("AddOnBranches")
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -87,6 +90,7 @@ model Package {
   // Relations
   transactionItems TransactionItem[]
   branchPricing    BranchPricing[]
+  branches         Branch[]          @relation("PackageBranches")
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -106,6 +110,7 @@ model Template {
   
   // Relations
   transactionItems TransactionItem[]
+  branches         Branch[]          @relation("TemplateBranches")
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -126,6 +131,7 @@ model AddOn {
   // Relations
   transactionItems TransactionItem[]
   branchPricing    BranchPricing[]
+  branches         Branch[]          @relation("AddOnBranches")
   
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

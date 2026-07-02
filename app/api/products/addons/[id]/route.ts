@@ -11,6 +11,7 @@ export async function GET(
 
     const addOn = await prisma.addOn.findUnique({
       where: { id },
+      include: { branches: { select: { id: true } } },
     })
 
     if (!addOn) {
@@ -40,6 +41,7 @@ export async function PUT(
       description,
       imageUrl,
       isActive,
+      branchIds,
     } = body
 
     const existing = await prisma.addOn.findUnique({
@@ -75,6 +77,9 @@ export async function PUT(
         description: description || null,
         imageUrl: imageUrl || null,
         isActive,
+        branches: {
+          set: (Array.isArray(branchIds) ? branchIds : []).map((id: string) => ({ id })),
+        },
       },
     })
 

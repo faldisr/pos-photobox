@@ -40,6 +40,7 @@ type AddOn = {
   type: string
   price: number
   isActive: boolean
+  branches: { id: string }[]
 }
 
 export function AddOnList() {

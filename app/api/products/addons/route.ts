@@ -1,11 +1,25 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 
+export const dynamic = "force-dynamic"
+
 // GET - List all add-ons
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url)
+    const branchId = searchParams.get("branchId")
+
     const addOns = await prisma.addOn.findMany({
+      where: branchId
+        ? {
+            OR: [
+              { branches: { none: {} } },
+              { branches: { some: { id: branchId } } },
+            ],
+          }
+        : undefined,
       orderBy: { createdAt: "desc" },
+      include: { branches: { select: { id: true } } },
     })
 
     return NextResponse.json(addOns)
@@ -30,6 +44,7 @@ export async function POST(request: Request) {
       description,
       imageUrl,
       isActive,
+      branchIds,
     } = body
 
     // Validate required fields
@@ -70,6 +85,10 @@ export async function POST(request: Request) {
         description: description || null,
         imageUrl: imageUrl || null,
         isActive: isActive ?? true,
+        branches:
+          Array.isArray(branchIds) && branchIds.length > 0
+            ? { connect: branchIds.map((id: string) => ({ id })) }
+            : undefined,
       },
     })
 

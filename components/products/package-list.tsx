@@ -40,6 +40,7 @@ type Package = {
   basePrice: number
   photoCount: number
   isActive: boolean
+  branches: { id: string }[]
 }
 
 export function PackageList() {

@@ -27,9 +27,10 @@ type Product = {
 type ProductPanelProps = {
   onAddToCart: (item: Omit<CartItem, "quantity">) => void
   cart: CartItem[]
+  branchId: string
 }
 
-export function ProductPanel({ onAddToCart, cart }: ProductPanelProps) {
+export function ProductPanel({ onAddToCart, cart, branchId }: ProductPanelProps) {
   const [packages, setPackages] = useState<Product[]>([])
   const [templates, setTemplates] = useState<Product[]>([])
   const [addons, setAddons] = useState<Product[]>([])
@@ -39,9 +40,9 @@ export function ProductPanel({ onAddToCart, cart }: ProductPanelProps) {
   const fetchAll = useCallback(async () => {
     try {
       const [pkgRes, tplRes, adnRes] = await Promise.all([
-        fetch("/api/products/packages"),
-        fetch("/api/products/templates"),
-        fetch("/api/products/addons"),
+        fetch(`/api/products/packages?branchId=${branchId}`),
+        fetch(`/api/products/templates?branchId=${branchId}`),
+        fetch(`/api/products/addons?branchId=${branchId}`),
       ])
       const [pkgData, tplData, adnData] = await Promise.all([
         pkgRes.json(),
@@ -56,7 +57,7 @@ export function ProductPanel({ onAddToCart, cart }: ProductPanelProps) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [branchId])
 
   useEffect(() => {
     fetchAll()

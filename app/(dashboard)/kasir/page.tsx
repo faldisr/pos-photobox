@@ -166,7 +166,7 @@ export default function KasirPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Panel Kiri: Produk */}
         <div className="flex-1 overflow-hidden md:border-r">
-          <ProductPanel onAddToCart={addToCart} cart={cart} />
+          <ProductPanel onAddToCart={addToCart} cart={cart} branchId={activeShift.branchId} />
         </div>
 
         {/* Panel Kanan: Keranjang */}

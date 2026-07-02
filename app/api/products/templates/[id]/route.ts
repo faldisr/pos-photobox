@@ -11,6 +11,7 @@ export async function GET(
 
     const template = await prisma.template.findUnique({
       where: { id },
+      include: { branches: { select: { id: true } } },
     })
 
     if (!template) {
@@ -40,6 +41,7 @@ export async function PUT(
       thumbnailUrl,
       isActive,
       isPopular,
+      branchIds,
     } = body
 
     const existing = await prisma.template.findUnique({
@@ -70,6 +72,9 @@ export async function PUT(
         thumbnailUrl: thumbnailUrl || null,
         isActive,
         isPopular,
+        branches: {
+          set: (Array.isArray(branchIds) ? branchIds : []).map((id: string) => ({ id })),
+        },
       },
     })
 
