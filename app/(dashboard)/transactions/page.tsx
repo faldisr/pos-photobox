@@ -338,10 +338,11 @@ const branch = branchCache[transaction.branchId] ?? null
 const handlePrint = async () => {
   setPrinting(true)
   try {
+    const deviceId = localStorage.getItem("bt_active_printer_id") ?? undefined
     await printReceipt({
       ...buildPrintParams(transaction, branch),
       onAfterPrint: () => onPrinted(transaction.id),
-    })
+    }, deviceId)
     toast.success("Struk berhasil dicetak")
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -351,6 +352,8 @@ const handlePrint = async () => {
       // User menutup picker — tidak perlu toast
     } else if (msg === "BT_CONNECT_FAILED") {
       toast.error("Gagal konek ke printer. Pastikan printer menyala dan tidak tersambung ke perangkat lain.")
+    } else if (msg === "BT_CONNECT_TIMEOUT") {
+      toast.error("Koneksi printer timeout. Pastikan printer menyala dan dalam jangkauan.")
     } else {
       toast.error("Gagal mencetak. Pastikan printer menyala dan Bluetooth aktif.")
     }
@@ -358,7 +361,6 @@ const handlePrint = async () => {
     setPrinting(false)
   }
 }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] flex flex-col">
@@ -660,17 +662,30 @@ export default function TransactionsPage() {
     setPage(1)
   }
 
-  const handlePrint = (trx: Transaction) => {
-    try {
-      const branch = branchCache[trx.branchId] ?? null
-      printReceipt({
-        ...buildPrintParams(trx, branch),
-        onAfterPrint: () => handlePrinted(trx.id),
-      })
-    } catch {
-      toast.error("Popup diblokir browser. Izinkan popup untuk mencetak.")
+  const handlePrint = async (trx: Transaction) => {
+  try {
+    const branch = branchCache[trx.branchId] ?? null
+    const deviceId = localStorage.getItem("bt_active_printer_id") ?? undefined
+    await printReceipt({
+      ...buildPrintParams(trx, branch),
+      onAfterPrint: () => handlePrinted(trx.id),
+    }, deviceId)
+    toast.success("Struk berhasil dicetak")
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg === "WEB_BT_NOT_SUPPORTED") {
+      toast.error("Browser tidak mendukung Bluetooth. Gunakan Chrome Android.")
+    } else if (msg.includes("User cancelled") || msg.includes("cancelled")) {
+      // silent
+    } else if (msg === "BT_CONNECT_FAILED") {
+      toast.error("Gagal konek ke printer. Pastikan printer menyala.")
+    } else if (msg === "BT_CONNECT_TIMEOUT") {
+      toast.error("Koneksi printer timeout. Pastikan printer menyala dan dalam jangkauan.")
+    } else {
+      toast.error("Gagal mencetak. Pastikan printer menyala dan Bluetooth aktif.")
     }
   }
+}
 
   const startItem = meta.total === 0 ? 0 : (meta.page - 1) * meta.limit + 1
   const endItem   = Math.min(meta.page * meta.limit, meta.total)

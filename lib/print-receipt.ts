@@ -244,7 +244,7 @@ function buildReceiptBytes(
   // ── Notes ──────────────────────────────────────────────────────────────────
   if (params.notes) {
     push(divider(), newline())
-    push(enc("ID Foto: " + params.notes), newline())
+    push(CMD_BOLD_ON, enc("ID Foto: " + params.notes), newline(), CMD_BOLD_OFF)
   }
 
   // ── Watermark cetak ulang ──────────────────────────────────────────────────
@@ -280,6 +280,42 @@ function buildReceiptBytes(
  */
 const BT_SESSION_KEY = "bt_printer_id"
 
+// ─── Module-level device cache ────────────────────────────────────────────────
+
+/**
+ * Cache objek BluetoothDevice di memory.
+ * Diisi oleh PrinterManagerDialog saat user menambah/memilih printer,
+ * sehingga saat cetak tidak perlu picker ulang selama halaman tidak di-refresh.
+ */
+let _cachedDevice: BluetoothDevice | null = null
+
+/**
+ * Set device yang akan digunakan saat cetak.
+ * Dipanggil dari PrinterManagerDialog setelah requestDevice berhasil.
+ */
+export function setCachedDevice(device: BluetoothDevice): void {
+  _cachedDevice = device
+}
+
+// ─── Connect helper ───────────────────────────────────────────────────────────
+
+/** Koneksi GATT dengan timeout 15 detik agar tidak stuck */
+async function connectWithTimeout(device: BluetoothDevice): Promise<BluetoothRemoteGATTServer> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("BT_CONNECT_TIMEOUT")), 15000)
+    device.gatt!.connect()
+      .then((server) => {
+        clearTimeout(timer)
+        if (!server) reject(new Error("BT_CONNECT_FAILED"))
+        else resolve(server)
+      })
+      .catch((err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
+  })
+}
+
 /** Kirim bytes ke printer via Web Bluetooth, maks 512 byte per chunk */
 async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void> {
   if (!("bluetooth" in navigator)) {
@@ -288,35 +324,49 @@ async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void>
 
   let device: BluetoothDevice | null = null
 
-  // Coba gunakan deviceId dari printer manager jika ada
-  if (deviceId) {
-    try {
-      const devices = await navigator.bluetooth.getDevices()
-      device = devices.find((d) => d.id === deviceId) ?? null
-    } catch {
-      // getDevices() mungkin tidak support di semua browser, abaikan
-    }
+  // 1. Cek module-level cache — paling reliable, tidak perlu getDevices()
+  if (_cachedDevice && (!deviceId || _cachedDevice.id === deviceId)) {
+    device = _cachedDevice
   }
 
-  if (!device) {
+  // 2. Coba getDevices() dengan deviceId dari printer manager
+  if (!device && deviceId) {
     try {
-      // Coba pakai device dari session jika tersedia
-      const savedId = sessionStorage.getItem(BT_SESSION_KEY)
-      if (savedId) {
-        const devices = await navigator.bluetooth.getDevices()
-        device = devices.find((d) => d.id === savedId) ?? null
+      const devices = await navigator.bluetooth.getDevices()
+      const found = devices.find((d) => d.id === deviceId) ?? null
+      if (found) {
+        device = found
+        _cachedDevice = found
       }
     } catch {
       // getDevices() mungkin tidak support di semua browser, abaikan
     }
   }
 
+  // 3. Coba session fallback
   if (!device) {
-    // Tampilkan picker ke user
+    try {
+      const savedId = sessionStorage.getItem(BT_SESSION_KEY)
+      if (savedId) {
+        const devices = await navigator.bluetooth.getDevices()
+        const found = devices.find((d) => d.id === savedId) ?? null
+        if (found) {
+          device = found
+          _cachedDevice = found
+        }
+      }
+    } catch {
+      // abaikan
+    }
+  }
+
+  // 4. Last resort — tampilkan picker
+  if (!device) {
     device = await navigator.bluetooth.requestDevice({
       filters: [{ services: [BT_SERVICE_UUID] }],
       optionalServices: [BT_SERVICE_UUID],
     })
+    _cachedDevice = device
     try {
       sessionStorage.setItem(BT_SESSION_KEY, device.id)
     } catch {
@@ -324,8 +374,7 @@ async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void>
     }
   }
 
-  const server = await device.gatt?.connect()
-  if (!server) throw new Error("BT_CONNECT_FAILED")
+  const server = await connectWithTimeout(device)
 
   const service        = await server.getPrimaryService(BT_SERVICE_UUID)
   const characteristic = await service.getCharacteristic(BT_CHARACTERISTIC_UUID)

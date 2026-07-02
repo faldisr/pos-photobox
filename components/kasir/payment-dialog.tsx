@@ -218,6 +218,8 @@ export function PaymentDialog({
         // User menutup picker — tidak perlu toast
       } else if (msg === "BT_CONNECT_FAILED") {
         toast.error("Gagal konek ke printer. Pastikan printer menyala dan tidak tersambung ke perangkat lain.")
+      } else if (msg === "BT_CONNECT_TIMEOUT") {
+        toast.error("Koneksi printer timeout. Pastikan printer menyala dan dalam jangkauan.")
       } else {
         toast.error("Gagal mencetak struk. Pastikan printer menyala dan Bluetooth aktif.")
       }

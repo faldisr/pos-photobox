@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Printer, Plus, Trash2, Check } from "lucide-react"
 import { toast } from "sonner"
+import { setCachedDevice } from "@/lib/print-receipt"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -63,6 +64,9 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
         filters: [{ services: [BT_SERVICE_UUID] }],
         optionalServices: [BT_SERVICE_UUID],
       })
+      // Cache device object di memory agar print langsung bisa tanpa picker
+      setCachedDevice(device)
+
       const already = printers.find((p) => p.id === device.id)
       if (already) {
         toast.error("Printer sudah ditambahkan.")
@@ -92,6 +96,13 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
   const handleSetActive = (id: string) => {
     setActivePrinterId(id)
     localStorage.setItem(LS_ACTIVE_KEY, id)
+    // Coba cache device object agar print langsung bisa tanpa picker
+    navigator.bluetooth?.getDevices?.()
+      .then((devices) => {
+        const found = devices.find((d) => d.id === id)
+        if (found) setCachedDevice(found)
+      })
+      .catch(() => { /* silent */ })
   }
 
   const handleDelete = (id: string) => {
