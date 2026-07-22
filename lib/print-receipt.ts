@@ -95,6 +95,10 @@ const CMD_ALIGN_CENTER = new Uint8Array([0x1b, 0x61, 0x01])
 const CMD_BOLD_ON    = new Uint8Array([0x1b, 0x45, 0x01])
 /** ESC E 0 — bold off */
 const CMD_BOLD_OFF   = new Uint8Array([0x1b, 0x45, 0x00])
+/** ESC G 1 — double strike on */
+const CMD_DOUBLE_STRIKE_ON  = new Uint8Array([0x1b, 0x47, 0x01])
+/** ESC G 0 — double strike off */
+const CMD_DOUBLE_STRIKE_OFF = new Uint8Array([0x1b, 0x47, 0x00])
 /** GS ! 0x11 — double width + double height (2x) */
 const CMD_SIZE_2X    = new Uint8Array([0x1d, 0x21, 0x11])
 /** GS ! 0x00 — ukuran normal */
@@ -104,9 +108,9 @@ const CMD_CUT        = new Uint8Array([0x1d, 0x56, 0x00])
 /** ESC d 3 — feed 3 baris sebelum cut */
 const CMD_FEED       = new Uint8Array([0x1b, 0x64, 0x03])
 
-/** Garis putus-putus 32 karakter */
-function divider(): Uint8Array {
-  return enc("-".repeat(PAPER_WIDTH))
+/** Garis putus-putus sesuai lebar kertas */
+function divider(width = PAPER_WIDTH): Uint8Array {
+  return enc("-".repeat(width))
 }
 
 /** Pad string kiri & kanan hingga totalWidth, untuk format 2 kolom */
@@ -157,7 +161,8 @@ export function generateQueueNumber(): string {
 // ─── ESC/POS Receipt Builder ──────────────────────────────────────────────────
 
 function buildReceiptBytes(
-  params: PrintReceiptParams & { resolvedQueueNumber: string }
+  params: PrintReceiptParams & { resolvedQueueNumber: string },
+  paperWidth = PAPER_WIDTH
 ): Uint8Array {
   const chunks: Uint8Array[] = []
 
@@ -169,9 +174,9 @@ function buildReceiptBytes(
 
   // ── Header: Nama Toko ──────────────────────────────────────────────────────
   push(CMD_ALIGN_CENTER)
-  push(CMD_BOLD_ON, CMD_SIZE_2X)
+  push(CMD_BOLD_ON)
   push(enc(params.branch?.name ?? "PHOTOBOX POS"), newline())
-  push(CMD_SIZE_NORMAL, CMD_BOLD_OFF)
+  push(CMD_BOLD_OFF)
 
   if (params.branch?.city)    push(enc(params.branch.city), newline())
   if (params.branch?.address) push(enc(params.branch.address), newline())
@@ -179,7 +184,7 @@ function buildReceiptBytes(
 
   push(newline())
   push(CMD_ALIGN_LEFT)
-  push(divider(), newline())
+  push(divider(paperWidth), newline())
 
   // ── Nomor Antrian ──────────────────────────────────────────────────────────
   push(CMD_ALIGN_CENTER)
@@ -190,73 +195,73 @@ function buildReceiptBytes(
   push(newline())
 
   push(CMD_ALIGN_LEFT)
-  push(divider(), newline())
+  push(divider(paperWidth), newline())
 
   // ── Info Transaksi ─────────────────────────────────────────────────────────
-  push(padRow("No. Transaksi", params.transactionNo), newline())
+  push(padRow("No. Transaksi", params.transactionNo, paperWidth), newline())
   push(
-    padRow("Tanggal", params.transactionDate ? fmtDate(params.transactionDate) : "-"),
+    padRow("Tanggal", params.transactionDate ? fmtDate(params.transactionDate) : "-", paperWidth),
     newline()
   )
   if (params.customerName)
-    push(padRow("Pelanggan", params.customerName), newline())
+    push(padRow("Pelanggan", params.customerName, paperWidth), newline())
   if (params.customerPhone)
-    push(padRow("No. HP", params.customerPhone), newline())
+    push(padRow("No. HP", params.customerPhone, paperWidth), newline())
 
-  push(divider(), newline())
+  push(divider(paperWidth), newline())
 
   // ── Item ───────────────────────────────────────────────────────────────────
   for (const item of params.items) {
     const itemTotal = fmtCurrency(item.price * item.quantity)
     const qtyLabel  = `${item.quantity}x`
     // Baris 1: nama item (bisa wrap)
-    const maxNameWidth = PAPER_WIDTH - qtyLabel.length - itemTotal.length - 2
+    const maxNameWidth = paperWidth - qtyLabel.length - itemTotal.length - 2
     const namePart = item.name.slice(0, maxNameWidth)
     push(enc(namePart.padEnd(maxNameWidth) + " " + qtyLabel + " " + itemTotal), newline())
   }
 
-  push(divider(), newline())
+  push(divider(paperWidth), newline())
 
   // ── Subtotal & Diskon ──────────────────────────────────────────────────────
-  push(padRow("Subtotal", fmtCurrency(params.subtotal)), newline())
+  push(padRow("Subtotal", fmtCurrency(params.subtotal), paperWidth), newline())
 
   if (params.discount > 0) {
     const discLabel = params.promoCode
       ? `Diskon (${params.promoCode})`
       : "Diskon"
-    push(padRow(discLabel, "- " + fmtCurrency(params.discount)), newline())
+    push(padRow(discLabel, "- " + fmtCurrency(params.discount), paperWidth), newline())
   }
 
-  push(divider(), newline())
+  push(divider(paperWidth), newline())
 
   // ── Total ──────────────────────────────────────────────────────────────────
   push(CMD_BOLD_ON)
-  push(padRow("TOTAL", fmtCurrency(params.total)), newline())
+  push(padRow("TOTAL", fmtCurrency(params.total), paperWidth), newline())
   push(CMD_BOLD_OFF)
 
-  push(padRow("Pembayaran", PAYMENT_METHOD_LABEL[params.paymentMethod] ?? params.paymentMethod), newline())
+  push(padRow("Pembayaran", PAYMENT_METHOD_LABEL[params.paymentMethod] ?? params.paymentMethod, paperWidth), newline())
 
   if (params.paymentMethod === "CASH") {
-    push(padRow("Bayar", fmtCurrency(params.paidAmount)), newline())
-    push(padRow("Kembalian", fmtCurrency(params.change)), newline())
+    push(padRow("Bayar", fmtCurrency(params.paidAmount), paperWidth), newline())
+    push(padRow("Kembalian", fmtCurrency(params.change), paperWidth), newline())
   }
 
   // ── Notes ──────────────────────────────────────────────────────────────────
   if (params.notes) {
-    push(divider(), newline())
-    push(CMD_BOLD_ON, enc("ID Foto: " + params.notes), newline(), CMD_BOLD_OFF)
+    push(divider(paperWidth), newline())
+    push(CMD_BOLD_ON, CMD_DOUBLE_STRIKE_ON, enc("ID Foto: " + params.notes), newline(), CMD_DOUBLE_STRIKE_OFF, CMD_BOLD_OFF)
   }
 
   // ── Watermark cetak ulang ──────────────────────────────────────────────────
   if (params.isPrinted) {
-    push(divider(), newline())
+    push(divider(paperWidth), newline())
     push(CMD_ALIGN_CENTER)
     push(enc("*** CETAK ULANG ***"), newline())
     push(CMD_ALIGN_LEFT)
   }
 
   // ── Footer ─────────────────────────────────────────────────────────────────
-  push(divider(), newline())
+  push(divider(paperWidth), newline())
   push(CMD_ALIGN_CENTER)
   line("Terima kasih atas kunjungan Anda!")
   line("Simpan struk ini sebagai bukti")
@@ -394,15 +399,15 @@ async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void>
 
 /**
  * Cetak struk ke printer thermal Bluetooth.
- * Signature sama persis dengan versi sebelumnya — tidak perlu ubah code lain.
  *
  * @throws "WEB_BT_NOT_SUPPORTED" — browser tidak support Web Bluetooth
  * @throws "BT_CONNECT_FAILED"    — gagal konek ke printer
+ * @throws "BT_CONNECT_TIMEOUT"   — koneksi timeout 15 detik
  * @throws Error lain dari Web Bluetooth API (user cancel, dll)
  */
-export async function printReceipt(params: PrintReceiptParams, deviceId?: string): Promise<void> {
+export async function printReceipt(params: PrintReceiptParams, deviceId?: string, paperWidth = PAPER_WIDTH): Promise<void> {
   const resolvedQueueNumber = params.queueNumber ?? generateQueueNumber()
-  const bytes = buildReceiptBytes({ ...params, resolvedQueueNumber })
+  const bytes = buildReceiptBytes({ ...params, resolvedQueueNumber }, paperWidth)
 
   await sendToPrinter(bytes, deviceId)
 

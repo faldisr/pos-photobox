@@ -339,10 +339,8 @@ const handlePrint = async () => {
   setPrinting(true)
   try {
     const deviceId = localStorage.getItem("bt_active_printer_id") ?? undefined
-    await printReceipt({
-      ...buildPrintParams(transaction, branch),
-      onAfterPrint: () => onPrinted(transaction.id),
-    }, deviceId)
+const paperWidth = parseInt(localStorage.getItem("bt_active_printer_width") ?? "58", 10)
+await printReceipt({ ...buildPrintParams(transaction, branch), onAfterPrint: () => onPrinted(transaction.id) }, deviceId, paperWidth)
     toast.success("Struk berhasil dicetak")
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -665,11 +663,9 @@ export default function TransactionsPage() {
   const handlePrint = async (trx: Transaction) => {
   try {
     const branch = branchCache[trx.branchId] ?? null
-    const deviceId = localStorage.getItem("bt_active_printer_id") ?? undefined
-    await printReceipt({
-      ...buildPrintParams(trx, branch),
-      onAfterPrint: () => handlePrinted(trx.id),
-    }, deviceId)
+   const deviceId = localStorage.getItem("bt_active_printer_id") ?? undefined
+const paperWidth = parseInt(localStorage.getItem("bt_active_printer_width") ?? "58", 10)
+await printReceipt({ ...buildPrintParams(trx, branch), onAfterPrint: () => handlePrinted(trx.id) }, deviceId, paperWidth)
     toast.success("Struk berhasil dicetak")
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

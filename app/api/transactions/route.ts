@@ -148,10 +148,11 @@ export async function POST(request: NextRequest) {
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0)
     const endOfDay   = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999)
     const countToday = await prisma.transaction.count({
-      where: {
-        createdAt: { gte: startOfDay, lte: endOfDay },
-      },
-    })
+  where: {
+    branchId: shift.branchId,
+    createdAt: { gte: startOfDay, lte: endOfDay },
+  },
+})
     const queueNumber = String(countToday + 1).padStart(3, "0")
 
     let customerId: string | null = null

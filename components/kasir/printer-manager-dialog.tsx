@@ -5,6 +5,14 @@ import { Printer, Plus, Trash2, Check } from "lucide-react"
 import { toast } from "sonner"
 import { setCachedDevice } from "@/lib/print-receipt"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -12,14 +20,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-const BT_SERVICE_UUID  = "000018f0-0000-1000-8000-00805f9b34fb"
-const LS_PRINTERS_KEY  = "bt_printers"
-const LS_ACTIVE_KEY    = "bt_active_printer_id"
-const MAX_PRINTERS     = 5
+const BT_SERVICE_UUID      = "000018f0-0000-1000-8000-00805f9b34fb"
+const LS_PRINTERS_KEY      = "bt_printers"
+const LS_ACTIVE_KEY        = "bt_active_printer_id"
+const LS_ACTIVE_WIDTH_KEY  = "bt_active_printer_width"
+const MAX_PRINTERS         = 5
 
 type SavedPrinter = {
   id: string
   name: string
+  paperWidth: 58 | 57
 }
 
 type PrinterManagerDialogProps = {
@@ -31,13 +41,23 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
   const [printers, setPrinters] = useState<SavedPrinter[]>([])
   const [activePrinterId, setActivePrinterId] = useState<string>("")
   const [adding, setAdding] = useState(false)
+  const [newPrinterWidth, setNewPrinterWidth] = useState<58 | 57>(58)
 
   useEffect(() => {
     if (!open) return
     try {
       const saved = localStorage.getItem(LS_PRINTERS_KEY)
-      setPrinters(saved ? JSON.parse(saved) : [])
-      setActivePrinterId(localStorage.getItem(LS_ACTIVE_KEY) ?? "")
+      const list: SavedPrinter[] = saved ? JSON.parse(saved) : []
+      setPrinters(list)
+      const activeId = localStorage.getItem(LS_ACTIVE_KEY) ?? ""
+      setActivePrinterId(activeId)
+      // Sync lebar kertas printer aktif ke localStorage
+      if (activeId) {
+        const activePrinter = list.find((p) => p.id === activeId)
+        if (activePrinter) {
+          localStorage.setItem(LS_ACTIVE_WIDTH_KEY, String(activePrinter.paperWidth ?? 58))
+        }
+      }
     } catch {
       setPrinters([])
       setActivePrinterId("")
@@ -75,12 +95,14 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
       const newPrinter: SavedPrinter = {
         id: device.id,
         name: device.name ?? `Printer ${printers.length + 1}`,
+        paperWidth: newPrinterWidth,
       }
       const updated = [...printers, newPrinter]
       savePrinters(updated)
       if (!activePrinterId) {
         setActivePrinterId(newPrinter.id)
         localStorage.setItem(LS_ACTIVE_KEY, newPrinter.id)
+        localStorage.setItem(LS_ACTIVE_WIDTH_KEY, String(newPrinterWidth))
       }
       toast.success(`Printer "${newPrinter.name}" ditambahkan.`)
     } catch (err: unknown) {
@@ -94,8 +116,10 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
   }
 
   const handleSetActive = (id: string) => {
+    const printer = printers.find((p) => p.id === id)
     setActivePrinterId(id)
     localStorage.setItem(LS_ACTIVE_KEY, id)
+    localStorage.setItem(LS_ACTIVE_WIDTH_KEY, String(printer?.paperWidth ?? 58))
     // Coba cache device object agar print langsung bisa tanpa picker
     navigator.bluetooth?.getDevices?.()
       .then((devices) => {
@@ -109,9 +133,10 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
     const updated = printers.filter((p) => p.id !== id)
     savePrinters(updated)
     if (activePrinterId === id) {
-      const newActive = updated[0]?.id ?? ""
-      setActivePrinterId(newActive)
-      localStorage.setItem(LS_ACTIVE_KEY, newActive)
+      const newActive = updated[0] ?? null
+      setActivePrinterId(newActive?.id ?? "")
+      localStorage.setItem(LS_ACTIVE_KEY, newActive?.id ?? "")
+      localStorage.setItem(LS_ACTIVE_WIDTH_KEY, String(newActive?.paperWidth ?? 58))
     }
   }
 
@@ -155,7 +180,12 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
                       )}
                     </div>
                     <div className="min-w-0 text-left">
-                      <p className="text-sm font-medium truncate">{printer.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium truncate">{printer.name}</p>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {printer.paperWidth ?? 58}mm
+                        </span>
+                      </div>
                       {activePrinterId === printer.id && (
                         <p className="text-xs text-primary">Aktif</p>
                       )}
@@ -173,6 +203,22 @@ export function PrinterManagerDialog({ open, onOpenChange }: PrinterManagerDialo
               ))}
             </div>
           )}
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Ukuran Kertas (printer baru)</Label>
+            <Select
+              value={String(newPrinterWidth)}
+              onValueChange={(v) => setNewPrinterWidth(Number(v) as 58 | 57)}
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="58">58mm </SelectItem>
+                <SelectItem value="57">57mm </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <Button
             variant="outline"
