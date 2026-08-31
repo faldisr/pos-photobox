@@ -384,12 +384,30 @@ async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void>
   const service        = await server.getPrimaryService(BT_SERVICE_UUID)
   const characteristic = await service.getCharacteristic(BT_CHARACTERISTIC_UUID)
 
-  // Kirim data dalam chunk 512 byte
+  // Kirim data dalam chunk maks 512 byte. Titik potong digeser mundur ke
+  // newline (0x0A) terdekat sebelum batas 512, supaya command ESC/POS
+  // (mis. ganti ukuran font, bold on/off — cuma 2-3 byte) tidak pernah
+  // terbelah jadi dua write BLE terpisah. Command yang terbelah begini
+  // yang menyebabkan struk "rusak" tepat setelah blok NO. ANTRIAN
+  // (CMD_SIZE_2X/CMD_SIZE_NORMAL) pada beberapa printer.
   const CHUNK = 512
-  for (let i = 0; i < data.length; i += CHUNK) {
-    await characteristic.writeValueWithoutResponse(data.slice(i, i + CHUNK))
+  let offset = 0
+  while (offset < data.length) {
+    let end = Math.min(offset + CHUNK, data.length)
+
+    if (end < data.length) {
+      let safeEnd = end
+      while (safeEnd > offset && data[safeEnd - 1] !== 0x0a) safeEnd--
+      // Kalau ketemu newline di dalam rentang ini, potong di situ.
+      // Kalau tidak ada newline sama sekali (baris > 512 byte — harusnya
+      // tidak pernah terjadi di struk kita), fallback ke potongan 512 biasa.
+      if (safeEnd > offset) end = safeEnd
+    }
+
+    await characteristic.writeValueWithoutResponse(data.slice(offset, end))
     // Delay kecil agar buffer printer tidak penuh
     await new Promise((r) => setTimeout(r, 30))
+    offset = end
   }
 
   server.disconnect()
