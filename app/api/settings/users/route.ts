@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcrypt"
+import { requireRole } from "@/lib/auth"
 
 // GET - List all users
 export async function GET() {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const users = await prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -32,6 +36,9 @@ export async function GET() {
 // POST - Create new user
 export async function POST(request: Request) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const body = await request.json()
     const { name, email, password, role, branchId, username } = body
 

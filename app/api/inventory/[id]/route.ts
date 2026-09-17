@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth"
 
 // ─── PATCH: Update stok (restock / koreksi / return) ─────────────────────────
 export async function PATCH(
@@ -7,6 +8,9 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const { id } = await params
     const body = await request.json()
     const { quantityChange, type, note } = body
@@ -76,6 +80,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const { id } = await params
 
     const inventory = await prisma.inventory.findUnique({

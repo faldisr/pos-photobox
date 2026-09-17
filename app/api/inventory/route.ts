@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth"
 
 // ─── GET: Daftar inventory per cabang atau semua cabang ───────────────────────
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireRole()
+    if (guard.error) return guard.error
+
     const { searchParams } = new URL(request.url)
     const branchId = searchParams.get("branchId") ?? ""
 
@@ -42,6 +46,9 @@ export async function GET(request: NextRequest) {
 // ─── POST: Tambah item baru + stok awal ───────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const body = await request.json()
     const { branchId, name, code, category, unit, minStock, quantity, unitCost } = body
 

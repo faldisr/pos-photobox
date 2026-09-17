@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth"
 
 // ─── GET: Daftar pelanggan dengan filter, search, pagination ─────────────────
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const { searchParams } = new URL(request.url)
     const page   = parseInt(searchParams.get("page")  ?? "1")
     const limit  = parseInt(searchParams.get("limit") ?? "20")
@@ -84,6 +88,9 @@ export async function GET(request: NextRequest) {
 // ─── PATCH: Edit pelanggan ────────────────────────────────────────────────────
 export async function PATCH(request: NextRequest) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const body = await request.json()
     const { id, name, phone, email, address, notes } = body
 
@@ -125,6 +132,9 @@ export async function PATCH(request: NextRequest) {
 // ─── DELETE: Hapus pelanggan ──────────────────────────────────────────────────
 export async function DELETE(request: NextRequest) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const { searchParams } = new URL(request.url)
     const id = searchParams.get("id")
 

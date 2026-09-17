@@ -43,3 +43,11 @@ next-env.d.ts
 /lib/generated/prisma
 /uploads/
 !.env.example
+
+# ai tooling (local, regenerable)
+/graphify-out/
+/.claude/
+
+# dump database lokal - jangan di-commit (berisi hash password & data pelanggan)
+pos_photobox.sql
+*.sql.gz

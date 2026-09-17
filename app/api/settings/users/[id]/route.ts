@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcrypt"
 import { UserRole } from "@prisma/client"
+import { requireRole } from "@/lib/auth"
 
 // GET - Get user by ID
 export async function GET(
@@ -9,6 +10,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const { id } = await params
 
     const user = await prisma.user.findUnique({
@@ -42,6 +46,9 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const { id } = await params
     const body = await request.json()
     const { name, email, password, role, branchId, username } = body
@@ -128,6 +135,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const { id } = await params
 
     const existing = await prisma.user.findUnique({

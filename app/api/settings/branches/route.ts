@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth"
 
 // GET - List all branches
 export async function GET() {
   try {
+    const guard = await requireRole()
+    if (guard.error) return guard.error
+
     const branches = await prisma.branch.findMany({
       orderBy: { createdAt: "desc" },
     })
@@ -21,6 +25,9 @@ export async function GET() {
 // POST - Create new branch
 export async function POST(request: Request) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const body = await request.json()
     const {
       name,

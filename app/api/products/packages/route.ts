@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 
 // GET - List all packages
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireRole()
+    if (guard.error) return guard.error
+
     const { searchParams } = new URL(request.url)
     const branchId = searchParams.get("branchId")
 
@@ -35,6 +39,9 @@ export async function GET(request: NextRequest) {
 // POST - Create new package
 export async function POST(request: Request) {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const body = await request.json()
     const {
       name,

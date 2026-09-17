@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { writeFile, mkdir } from "fs/promises"
 import { join } from "path"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { requireRole } from "@/lib/auth"
 
 const ALLOWED_MIME_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -11,17 +10,10 @@ const ALLOWED_MIME_TYPES: Record<string, string> = {
   "image/webp": "webp",
 }
 
-const ALLOWED_ROLES = ["SUPER_ADMIN", "BRANCH_MANAGER"]
-
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    if (!ALLOWED_ROLES.includes(session.user.role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
 
     const formData = await request.formData()
     const file = formData.get("file") as File

@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { generateTransactionNo } from "@/lib/utils"
+import { requireRole } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireRole()
+    if (guard.error) return guard.error
+
     const { searchParams } = new URL(request.url)
     const page     = parseInt(searchParams.get("page") ?? "1")
     const limit    = parseInt(searchParams.get("limit") ?? "20")
@@ -69,6 +73,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const guard = await requireRole()
+    if (guard.error) return guard.error
+
     const body = await request.json()
     const {
       shiftId,

@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
+    const guard = await requireRole()
+    if (guard.error) return guard.error
+
     const { searchParams } = new URL(request.url)
     const code      = searchParams.get("code")     ?? ""
     const totalStr  = searchParams.get("subtotal") ?? "0"

@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { requireRole } from "@/lib/auth"
 
 export async function GET() {
   try {
+    const guard = await requireRole(["SUPER_ADMIN"])
+    if (guard.error) return guard.error
+
     const cashiers = await prisma.user.findMany({
       where: { role: { in: ["CASHIER","SUPER_ADMIN"] } },
       select: { id: true, name: true },
