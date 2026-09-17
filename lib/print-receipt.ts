@@ -54,8 +54,14 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 const BT_SERVICE_UUID        = "000018f0-0000-1000-8000-00805f9b34fb"
 const BT_CHARACTERISTIC_UUID = "00002af1-0000-1000-8000-00805f9b34fb"
 
-/** Lebar kertas 58mm ≈ 32 karakter monospace */
-const PAPER_WIDTH = 32
+/**
+ * SEMENTARA (mode tes): semua cetakan dipaksa ke 57mm ≈ 30 karakter.
+ * Opsi 58mm (32 karakter) sengaja dinonaktifkan dulu supaya tidak ada
+ * variabel tambahan saat debugging di lapangan. Untuk mengembalikan
+ * dukungan 58mm nanti: kembalikan nilai ini ke 32 dan hidupkan lagi
+ * baris `effectiveWidth` di printReceipt() paling bawah.
+ */
+const PAPER_WIDTH = 30
 
 // ─── ESC/POS Command Helpers ──────────────────────────────────────────────────
 
@@ -263,7 +269,10 @@ function buildReceiptBytes(
   // ── Footer ─────────────────────────────────────────────────────────────────
   push(divider(paperWidth), newline())
   push(CMD_ALIGN_CENTER)
-  line("Terima kasih atas kunjungan Anda!")
+  // Dipecah 2 baris: "Terima kasih atas kunjungan Anda!" panjangnya 33
+  // karakter, otomatis wrap jelek di kertas 30 karakter.
+  line("Terima kasih atas")
+  line("kunjungan Anda!")
   line("Simpan struk ini sebagai bukti")
   line("pembayaran.")
   push(newline())
@@ -321,7 +330,7 @@ async function connectWithTimeout(device: BluetoothDevice): Promise<BluetoothRem
   })
 }
 
-/** Kirim bytes ke printer via Web Bluetooth, maks 512 byte per chunk */
+/** Kirim bytes ke printer via Web Bluetooth, dicicil 20 byte/chunk (lihat alasan MTU BLE 4.0 di komentar dalam) */
 async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void> {
   if (!("bluetooth" in navigator)) {
     throw new Error("WEB_BT_NOT_SUPPORTED")
@@ -384,13 +393,37 @@ async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void>
   const service        = await server.getPrimaryService(BT_SERVICE_UUID)
   const characteristic = await service.getCharacteristic(BT_CHARACTERISTIC_UUID)
 
-  // Kirim data dalam chunk maks 512 byte. Titik potong digeser mundur ke
-  // newline (0x0A) terdekat sebelum batas 512, supaya command ESC/POS
-  // (mis. ganti ukuran font, bold on/off — cuma 2-3 byte) tidak pernah
-  // terbelah jadi dua write BLE terpisah. Command yang terbelah begini
-  // yang menyebabkan struk "rusak" tepat setelah blok NO. ANTRIAN
-  // (CMD_SIZE_2X/CMD_SIZE_NORMAL) pada beberapa printer.
-  const CHUNK = 512
+  // Kirim data dalam chunk 20 byte, dengan jeda tiap chunk.
+  //
+  // KENAPA 20 BYTE (bukan 100/512 seperti sebelumnya):
+  // Spek resmi printer ini bilang Bluetooth "MAKSIMAL Versi 4.0". Di BLE,
+  // ukuran maksimum satu paket "Write Without Response" dibatasi oleh
+  // ATT_MTU yang disepakati kedua sisi (device & printer) saat konek —
+  // dan default bawaan spek BLE itu cuma 23 byte (20 byte payload + 3
+  // byte header), KECUALI kedua sisi berhasil nego MTU lebih besar. Chip
+  // BLE 4.0 yang murah sering nggak proper mendukung nego MTU ini. Kalau
+  // benar MTU efektif di koneksi ini cuma ~20 byte, maka setiap kali kode
+  // kita manggil writeValueWithoutResponse() dengan data LEBIH BESAR dari
+  // ~20 byte (termasuk chunk 100 byte yang kita pakai sebelumnya!), OS
+  // bisa diam-diam MEMOTONG (truncate) sisanya tanpa lempar error sama
+  // sekali — persis kenapa toast selalu bilang "berhasil" padahal
+  // sebagian isi struk hilang, dan kenapa hasilnya selalu identik untuk
+  // data yang sama (MTU dinego sekali per koneksi, jadi titik potongnya
+  // konsisten). Ini juga match dengan "makin lengkap makin parah": makin
+  // banyak baris = makin banyak potongan 100-byte yang masing-masing
+  // kehilangan bagian belakangnya.
+  //
+  // 20 byte adalah batas aman universal — pasti muat dalam MTU BLE
+  // manapun tanpa perlu tahu MTU asli yang berhasil dinego. Command
+  // ESC/POS (2-3 byte) boleh saja kebelah antar dua write terpisah;
+  // firmware printer memproses byte yang masuk sebagai stream berurutan,
+  // bukan per-paket, jadi ini aman selama tidak ada byte yang HILANG.
+  // Titik potong tetap dicoba digeser ke newline (0x0A) terdekat kalau
+  // muat dalam jendela 20 byte, sekadar bonus, bukan syarat wajib.
+  //
+  // Kalau masih ada yang hilang setelah ini, kemungkinan besar sisi lain
+  // (kecepatan cetak fisik printer, 90mm/s) yang perlu delay lebih besar.
+  const CHUNK = 20
   let offset = 0
   while (offset < data.length) {
     let end = Math.min(offset + CHUNK, data.length)
@@ -398,15 +431,17 @@ async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void>
     if (end < data.length) {
       let safeEnd = end
       while (safeEnd > offset && data[safeEnd - 1] !== 0x0a) safeEnd--
-      // Kalau ketemu newline di dalam rentang ini, potong di situ.
-      // Kalau tidak ada newline sama sekali (baris > 512 byte — harusnya
-      // tidak pernah terjadi di struk kita), fallback ke potongan 512 biasa.
       if (safeEnd > offset) end = safeEnd
     }
 
     await characteristic.writeValueWithoutResponse(data.slice(offset, end))
-    // Delay kecil agar buffer printer tidak penuh
-    await new Promise((r) => setTimeout(r, 30))
+    // Delay antar chunk. Chunk sekarang sudah aman dari sisi ukuran (MTU),
+    // tapi delay ini SENGAJA tidak dibuat sekecil mungkin — teori soal
+    // kecepatan cetak fisik (90mm/s, terutama sekitar CMD_SIZE_2X) belum
+    // pernah dites terpisah, jadi 40ms ini jalan tengah: cukup singkat
+    // biar total waktu cetak nggak kelamaan, tapi tetap kasih jeda kalau
+    // kecepatan cetak juga berkontribusi ke masalah ini.
+    await new Promise((r) => setTimeout(r, 40))
     offset = end
   }
 
@@ -424,8 +459,25 @@ async function sendToPrinter(data: Uint8Array, deviceId?: string): Promise<void>
  * @throws Error lain dari Web Bluetooth API (user cancel, dll)
  */
 export async function printReceipt(params: PrintReceiptParams, deviceId?: string, paperWidth = PAPER_WIDTH): Promise<void> {
+  // ── SEMENTARA: paksa semua cetakan ke 57mm (30 karakter) ──────────────────
+  // Nilai paperWidth yang dikirim pemanggil (payment-dialog.tsx /
+  // transactions/page.tsx, dibaca dari localStorage "bt_active_printer_width")
+  // sengaja DIABAIKAN dulu, supaya tester di lapangan tidak perlu memikirkan
+  // setting 58 vs 57 sama sekali. Selector di Printer Manager boleh dibiarkan
+  // apa adanya — apapun pilihannya, hasil cetak tetap 30 karakter.
+  //
+  // Untuk mengaktifkan kembali dukungan 58mm nanti, cukup ganti baris di
+  // bawah ini menjadi:  const effectiveWidth = paperWidth
+  const effectiveWidth = PAPER_WIDTH
+
+  if (paperWidth !== effectiveWidth) {
+    console.info(
+      `[print-receipt] paperWidth ${paperWidth} diabaikan -> dipaksa ${effectiveWidth} (mode tes 57mm)`
+    )
+  }
+
   const resolvedQueueNumber = params.queueNumber ?? generateQueueNumber()
-  const bytes = buildReceiptBytes({ ...params, resolvedQueueNumber }, paperWidth)
+  const bytes = buildReceiptBytes({ ...params, resolvedQueueNumber }, effectiveWidth)
 
   await sendToPrinter(bytes, deviceId)
 
