@@ -193,6 +193,10 @@ model Customer {
 
   @@index([phone])
   @@index([email])
+  // Urutan daftar pelanggan, laporan pelanggan, dan hitungan pelanggan baru di dashboard
+  @@index([lastVisit])
+  @@index([totalSpent])
+  @@index([createdAt])
   @@map("customers")
 }
 
@@ -254,6 +258,9 @@ model Transaction {
   @@index([shiftId])
   @@index([transactionNo])
   @@index([createdAt])
+  // Riwayat per cabang/kasir selalu difilter lalu diurutkan per tanggal
+  @@index([branchId, createdAt])
+  @@index([cashierId, createdAt])
   @@map("transactions")
 }
 
