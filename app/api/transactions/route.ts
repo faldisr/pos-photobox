@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { prisma, retryOnUniqueConflict } from "@/lib/prisma"
 import { generateTransactionNo } from "@/lib/utils"
 import { requireRole } from "@/lib/auth"
 
@@ -162,28 +162,32 @@ export async function POST(request: NextRequest) {
 })
     const queueNumber = String(countToday + 1).padStart(3, "0")
 
-    let customerId: string | null = null
-    if (customerPhone) {
-      const customer = await prisma.customer.upsert({
-        where: { phone: customerPhone },
-        update: {
-          name: customerName || undefined,
-          lastVisit: new Date(),
-          totalVisits: { increment: 1 },
-          totalSpent: { increment: total },
-        },
-        create: {
-          name: customerName || null,
-          phone: customerPhone,
-          lastVisit: new Date(),
-          totalVisits: 1,
-          totalSpent: total,
-        },
-      })
-      customerId = customer.id
-    }
+    // Semua langkah simpan berjalan dalam satu transaksi database: kalau satu
+    // gagal, semuanya batal — statistik pelanggan & total shift tidak ikut
+    // bertambah untuk transaksi yang tidak tersimpan. Nomor transaksi acak bisa
+    // bentrok (UNIQUE); kalau terjadi, seluruh langkah diulang dengan nomor baru.
+    const saveTransaction = () => prisma.$transaction(async (tx) => {
+      let customerId: string | null = null
+      if (customerPhone) {
+        const customer = await tx.customer.upsert({
+          where: { phone: customerPhone },
+          update: {
+            name: customerName || undefined,
+            lastVisit: new Date(),
+            totalVisits: { increment: 1 },
+            totalSpent: { increment: total },
+          },
+          create: {
+            name: customerName || null,
+            phone: customerPhone,
+            lastVisit: new Date(),
+            totalVisits: 1,
+            totalSpent: total,
+          },
+        })
+        customerId = customer.id
+      }
 
-    const transaction = await prisma.$transaction(async (tx) => {
       const trx = await tx.transaction.create({
         data: {
           transactionNo: generateTransactionNo(),
@@ -264,20 +268,22 @@ export async function POST(request: NextRequest) {
         })
       }
 
-      return trx
-    })
+      await tx.shift.update({
+        where: { id: shiftId },
+        data: {
+          totalTransactions: { increment: 1 },
+          totalSales:        { increment: total },
+          ...(paymentMethod === "CASH"       && { cashSales:  { increment: total } }),
+          ...(paymentMethod === "QRIS"       && { qrisSales:  { increment: total } }),
+          ...(paymentMethod === "DEBIT_CARD" && { cardSales:  { increment: total } }),
+          ...(paymentMethod === "TRANSFER"   && { otherSales: { increment: total } }),
+        },
+      })
 
-    await prisma.shift.update({
-      where: { id: shiftId },
-      data: {
-        totalTransactions: { increment: 1 },
-        totalSales:        { increment: total },
-        ...(paymentMethod === "CASH"       && { cashSales:  { increment: total } }),
-        ...(paymentMethod === "QRIS"       && { qrisSales:  { increment: total } }),
-        ...(paymentMethod === "DEBIT_CARD" && { cardSales:  { increment: total } }),
-        ...(paymentMethod === "TRANSFER"   && { otherSales: { increment: total } }),
-      },
-    })
+      return trx
+    }, { timeout: 10000 })
+
+    const transaction = await retryOnUniqueConflict(saveTransaction, "transactionNo")
 
     return NextResponse.json(transaction, { status: 201 })
   } catch (error) {

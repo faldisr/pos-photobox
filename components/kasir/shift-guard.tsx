@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Clock, PlayCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -22,13 +22,19 @@ type ShiftGuardProps = {
 export function ShiftGuard({ onShiftStarted }: ShiftGuardProps) {
   const [openingBalance, setOpeningBalance] = useState("")
   const [loading, setLoading] = useState(false)
+  // Penjaga yang langsung berlaku: `loading` baru terbaca setelah render ulang,
+  // sehingga Enter yang ditekan dua kali (atau Enter + klik) bisa lolos keduanya.
+  const submitting = useRef(false)
 
   const handleStartShift = async () => {
+    if (submitting.current) return
+
     if (!openingBalance || isNaN(parseFloat(openingBalance))) {
       toast.error("Masukkan saldo awal yang valid")
       return
     }
 
+    submitting.current = true
     setLoading(true)
     try {
       const res = await fetch("/api/shifts", {
@@ -48,6 +54,7 @@ export function ShiftGuard({ onShiftStarted }: ShiftGuardProps) {
     } catch {
       toast.error("Terjadi kesalahan, coba lagi")
     } finally {
+      submitting.current = false
       setLoading(false)
     }
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { prisma, retryOnUniqueConflict } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { generateTransactionNo } from "@/lib/utils"
@@ -32,32 +32,44 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const existingShift = await prisma.shift.findFirst({
-      where: {
-        cashierId: session.user.id,
-        endTime: null,
-      },
+    const { branchId, id: cashierId } = session.user
+
+    // Cek "sudah ada shift aktif" dan pembuatan shift harus satu langkah atomik.
+    // Tanpa kunci, dua request yang datang bersamaan (klik ganda, Enter dua kali,
+    // dua tab) sama-sama lolos pengecekan lalu sama-sama membuat shift. Baris user
+    // dikunci dulu, jadi request kedua menunggu request pertama selesai — lalu
+    // melihat shift yang baru dibuat dan ditolak.
+    const openShift = () => prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${cashierId} FOR UPDATE`
+
+      const existingShift = await tx.shift.findFirst({
+        where: { cashierId, endTime: null },
+      })
+      if (existingShift) return null
+
+      return tx.shift.create({
+        data: {
+          shiftNo: generateShiftNo(),
+          branchId,
+          cashierId,
+          startTime: new Date(),
+          openingBalance,
+        },
+        include: {
+          cashier: { select: { name: true } },
+        },
+      })
     })
 
-    if (existingShift) {
+    // shiftNo acak bisa bentrok (UNIQUE) — kalau terjadi, dibuat ulang dengan nomor baru
+    const shift = await retryOnUniqueConflict(openShift, "shiftNo")
+
+    if (!shift) {
       return NextResponse.json(
         { error: "Sudah ada shift aktif untuk akun ini" },
         { status: 400 }
       )
     }
-
-    const shift = await prisma.shift.create({
-      data: {
-        shiftNo: generateShiftNo(),
-        branchId: session.user.branchId,
-        cashierId: session.user.id,
-        startTime: new Date(),
-        openingBalance,
-      },
-      include: {
-        cashier: { select: { name: true } },
-      },
-    })
 
     return NextResponse.json(shift, { status: 201 })
   } catch (error) {
