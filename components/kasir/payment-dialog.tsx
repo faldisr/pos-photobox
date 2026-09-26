@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import {
   Banknote,
   QrCode,
@@ -8,6 +8,7 @@ import {
   Building2,
   CheckCircle2,
   Printer,
+  Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -104,6 +105,9 @@ export function PaymentDialog({
   const [transactionId, setTransactionId] = useState("")
   const [transactionDate, setTransactionDate] = useState<Date | null>(null)
   const [queueNumber, setQueueNumber] = useState<string | null>(null)
+  // Penjaga yang langsung berlaku: `loading` baru terbaca setelah render ulang,
+  // jadi dua klik yang sangat cepat bisa sama-sama lolos kalau hanya mengandalkannya.
+  const submitting = useRef(false)
 
   const paid = parseFloat(paidAmount) || 0
   const change = method === "CASH" ? Math.max(0, paid - total) : 0
@@ -116,11 +120,14 @@ export function PaymentDialog({
   ].filter((v, i, arr) => arr.indexOf(v) === i).slice(0, 3)
 
   const handlePayment = async () => {
+    if (submitting.current) return
+
     if (!cashValid) {
       toast.error("Jumlah bayar kurang dari total")
       return
     }
 
+    submitting.current = true
     setLoading(true)
     try {
       const res = await fetch("/api/transactions", {
@@ -166,8 +173,14 @@ export function PaymentDialog({
         toast.error(err?.error ?? "Gagal memproses pembayaran")
       }
     } catch {
-      toast.error("Terjadi kesalahan, coba lagi")
+      // Koneksi putus / respons tidak terbaca: server bisa saja sudah menyimpan
+      // transaksinya. Menyuruh "coba lagi" di sini berisiko transaksi ganda.
+      toast.error(
+        "Koneksi bermasalah. Cek dulu menu Transaksi — pembayaran mungkin sudah tersimpan — sebelum mencoba lagi.",
+        { duration: 15000 }
+      )
     } finally {
+      submitting.current = false
       setLoading(false)
     }
   }
@@ -230,6 +243,10 @@ export function PaymentDialog({
   }
 
   const handleClose = () => {
+    // Selama pembayaran diproses dialog tidak bisa ditutup (Esc, klik luar, tombol X),
+    // supaya kasir tidak membuka ulang lalu membayar dua kali.
+    if (loading) return
+
     if (success) {
       onSuccess()
       setSuccess(false)
@@ -245,7 +262,16 @@ export function PaymentDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md" showCloseButton={!loading}>
+        {loading && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-lg bg-background/90">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <p className="font-medium">Memproses pembayaran...</p>
+            <p className="px-6 text-center text-xs text-muted-foreground">
+              Mohon tunggu. Jangan tutup atau muat ulang halaman.
+            </p>
+          </div>
+        )}
         {success ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
@@ -416,9 +442,14 @@ export function PaymentDialog({
                   (method === "CASH" && (!paidAmount || !cashValid))
                 }
               >
-                {loading
-                  ? "Memproses..."
-                  : `Bayar Rp ${total.toLocaleString("id-ID")}`}
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Memproses...
+                  </>
+                ) : (
+                  `Bayar Rp ${total.toLocaleString("id-ID")}`
+                )}
               </Button>
             </div>
           </>

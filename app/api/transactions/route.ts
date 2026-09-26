@@ -150,23 +150,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate nomor antrian harian dari DB
-    const today = new Date()
-    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0)
-    const endOfDay   = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999)
-    const countToday = await prisma.transaction.count({
-  where: {
-    branchId: shift.branchId,
-    createdAt: { gte: startOfDay, lte: endOfDay },
-  },
-})
-    const queueNumber = String(countToday + 1).padStart(3, "0")
+    // Nomor antrian direset tiap tengah malam WIB (semua cabang di Jawa, UTC+7
+    // tanpa DST) — tidak bergantung pada zona waktu server.
+    const WIB_OFFSET = 7 * 60 * 60 * 1000
+    const DAY = 24 * 60 * 60 * 1000
+    const startOfDay = new Date(Math.floor((Date.now() + WIB_OFFSET) / DAY) * DAY - WIB_OFFSET)
 
     // Semua langkah simpan berjalan dalam satu transaksi database: kalau satu
     // gagal, semuanya batal — statistik pelanggan & total shift tidak ikut
     // bertambah untuk transaksi yang tidak tersimpan. Nomor transaksi acak bisa
     // bentrok (UNIQUE); kalau terjadi, seluruh langkah diulang dengan nomor baru.
     const saveTransaction = () => prisma.$transaction(async (tx) => {
+      // Penyimpanan di satu cabang diantrekan lewat kunci baris cabang, sebelum
+      // membaca atau menulis apa pun. Tanpa ini, dua pembayaran bersamaan bisa
+      // mendapat nomor antrian yang sama, saling deadlock di baris shift, atau
+      // saling menimpa potongan stok kertas.
+      await tx.$queryRaw`SELECT id FROM branches WHERE id = ${shift.branchId} FOR UPDATE`
+
+      const countToday = await tx.transaction.count({
+        where: { branchId: shift.branchId, createdAt: { gte: startOfDay } },
+      })
+      const queueNumber = String(countToday + 1).padStart(3, "0")
+
       let customerId: string | null = null
       if (customerPhone) {
         const customer = await tx.customer.upsert({
