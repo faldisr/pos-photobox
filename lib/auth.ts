@@ -154,6 +154,8 @@ export const authOptions: NextAuthOptions = {
           select: {
             activeSessionToken: true,
             sessionTokenVersion: true,
+            role: true,
+            branchId: true,
           },
         })
 
@@ -165,6 +167,14 @@ export const authOptions: NextAuthOptions = {
         ) {
           return { ...session, user: undefined }
         }
+
+        // Role & cabang diambil dari DB, bukan dari token.
+        // Token hanya diisi saat login, jadi kalau admin memindahkan kasir ke
+        // cabang lain (atau mengubah role), nilai di token tetap yang lama
+        // selama sesinya masih hidup. Akibatnya shift — dan semua transaksi,
+        // potongan stok, serta struk yang mengikutinya — tercatat di cabang lama.
+        session.user.role = user.role
+        session.user.branchId = user.branchId ?? undefined
       }
       return session
     },
