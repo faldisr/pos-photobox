@@ -360,11 +360,13 @@ export default function ReportsPage() {
     if (activeTab === "transaction") {
       autoTable(doc, {
         startY:  28,
-        head: [["No. Transaksi", "Pelanggan", "Kasir", "Metode", "Kode Promo", "Total", "Status", "Waktu"]],
+        head: [["No. Transaksi", "Pelanggan", "Kasir", "Item Dibeli", "Qty", "Metode", "Kode Promo", "Total", "Status", "Waktu"]],
         body: transactions.map((t) => [
           t.transactionNo,
           t.customer?.name ?? "-",
           t.cashier.name,
+          t.items.map((i) => i.itemName.trim()).join("\n"),
+          t.items.map((i) => i.quantity).join("\n"),
           PAYMENT_LABELS[t.paymentMethod] ?? t.paymentMethod,
           t.promoCode ?? "-",
           formatCurrency(Number(t.total)),
@@ -433,11 +435,13 @@ export default function ReportsPage() {
     if (activeTab === "transaction") {
       sheetName = "Transaksi"
       rows = [
-        ["No. Transaksi", "Pelanggan", "Kasir", "Metode Pembayaran", "Kode Promo", "Total", "Status", "Waktu"],
+        ["No. Transaksi", "Pelanggan", "Kasir", "Item Dibeli", "Qty", "Metode Pembayaran", "Kode Promo", "Total", "Status", "Waktu"],
         ...transactions.map((t) => [
           t.transactionNo,
           t.customer?.name ?? "-",
           t.cashier.name,
+          t.items.map((i) => i.itemName.trim()).join(", "),
+          t.items.map((i) => i.quantity).join(", "),
           PAYMENT_LABELS[t.paymentMethod] ?? t.paymentMethod,
           t.promoCode ?? "-",
           Number(t.total),
@@ -623,6 +627,8 @@ export default function ReportsPage() {
                   <TableHead className="min-w-[160px] text-center">No. Transaksi</TableHead>
                   <TableHead className="min-w-[120px] text-center">Pelanggan</TableHead>
                   <TableHead className="min-w-[100px] text-center">Kasir</TableHead>
+                  <TableHead className="min-w-[160px] text-center">Item Dibeli</TableHead>
+                  <TableHead className="min-w-[60px] text-center">Qty</TableHead>
                   <TableHead className="min-w-[110px] text-center">Total</TableHead>
                   <TableHead className="min-w-[100px] text-center">Pembayaran</TableHead>
                   {/* Kolom Kode Promo */}
@@ -635,13 +641,13 @@ export default function ReportsPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground">
                       Memuat data...
                     </TableCell>
                   </TableRow>
                 ) : transactions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground">
                       Tidak ada data transaksi
                     </TableCell>
                   </TableRow>
@@ -656,6 +662,17 @@ export default function ReportsPage() {
                       </TableCell>
                       <TableCell className="text-sm text-center">
                         {trx.cashier.name}
+                      </TableCell>
+                      {/* Satu baris per item di kedua kolom, nowrap supaya nama & qty tetap sejajar */}
+                      <TableCell className="text-sm text-center whitespace-nowrap">
+                        {trx.items.map((item) => (
+                          <div key={item.id}>{item.itemName.trim()}</div>
+                        ))}
+                      </TableCell>
+                      <TableCell className="text-sm text-center">
+                        {trx.items.map((item) => (
+                          <div key={item.id}>{item.quantity}</div>
+                        ))}
                       </TableCell>
                       <TableCell className="text-sm font-medium text-center">
                         {formatCurrency(Number(trx.total))}
