@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,12 @@ import { Loader2 } from "lucide-react"
 
 type RoleType = "ADMIN" | "CASHIER" | null
 
+// Alasan logout otomatis, dikirim lewat ?reason= oleh SessionWatcher (components/providers.tsx)
+const LOGOUT_MESSAGES: Record<string, string> = {
+  elsewhere: "Anda keluar karena akun ini login di perangkat lain.",
+  expired:   "Sesi Anda sudah berakhir. Silakan login kembali.",
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
@@ -20,6 +26,13 @@ export default function LoginPage() {
     email: "",
     password: "",
   })
+
+  useEffect(() => {
+    const message = LOGOUT_MESSAGES[new URLSearchParams(window.location.search).get("reason") ?? ""]
+    if (!message) return
+    toast.warning(message, { duration: 10000 })
+    window.history.replaceState(null, "", "/login")
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

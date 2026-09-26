@@ -174,7 +174,7 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 60 * 60,      // 1 jam — session expired setelah 1 jam
+    maxAge: 12 * 60 * 60, // 12 jam — cukup satu hari kerja; diperpanjang lagi tiap kali sesi dicek
     updateAge: 60 * 15,   // Refresh token setiap 15 menit jika aktif
   },
   secret: process.env.NEXTAUTH_SECRET,
