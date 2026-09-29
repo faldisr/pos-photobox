@@ -221,11 +221,16 @@ function periodInfo(from?: Date, to?: Date) {
 
 // Baris TOTAL export transaksi. Export ikut memuat transaksi yang di-refund
 // (status CANCELLED) — jumlahnya dirinci, tapi rupiahnya tidak dijumlahkan.
+// Kalau tidak ada refund, keterangan refund tidak ditampilkan sama sekali.
 function transactionTotals(rows: ExportTransactionRow[]) {
   const completed = rows.filter((t) => t.status === "COMPLETED")
+  const refunded  = rows.length - completed.length
   return {
-    summary: `${fmtCount(rows.length)} transaksi (${fmtCount(completed.length)} selesai, ${fmtCount(rows.length - completed.length)} refund)`,
-    revenue: completed.reduce((sum, t) => sum + Number(t.total), 0),
+    summary: refunded > 0
+      ? `${fmtCount(rows.length)} transaksi (${fmtCount(completed.length)} selesai, ${fmtCount(refunded)} refund)`
+      : `${fmtCount(rows.length)} transaksi`,
+    revenue:    completed.reduce((sum, t) => sum + Number(t.total), 0),
+    refundNote: refunded > 0 ? "refund tidak dihitung" : "",
   }
 }
 
@@ -495,7 +500,7 @@ export default function ReportsPage() {
         foot: [[
           { content: `TOTAL: ${totals.summary}`, colSpan: 7 },
           formatCurrency(totals.revenue),
-          { content: "refund tidak dihitung", colSpan: 2 },
+          { content: totals.refundNote, colSpan: 2 },
         ]],
       })
     }
@@ -579,7 +584,7 @@ export default function ReportsPage() {
           formatDateTime(t.createdAt),
         ]),
         [],
-        ["TOTAL", totals.summary, "", "", "", "", "", totals.revenue, "refund tidak dihitung", ""],
+        ["TOTAL", totals.summary, "", "", "", "", "", totals.revenue, totals.refundNote, ""],
       ]
     }
 
