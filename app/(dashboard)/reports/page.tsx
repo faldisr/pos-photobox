@@ -12,6 +12,7 @@ import {
   CalendarIcon,
   ChevronDownIcon,
   RotateCcw,
+  Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { DateRange } from "react-day-picker"
@@ -108,6 +109,15 @@ type Meta = {
   totalPages: number
 }
 
+// Baris export transaksi: API (all=1) hanya mengirim kolom yang dicetak di file
+type ExportTransactionRow = Pick<TransactionRow,
+  "transactionNo" | "createdAt" | "cashier" | "total" | "paymentMethod" | "promoCode" | "status"> & {
+  customer: { name: string | null } | null
+  items: Pick<TransactionItem, "itemName" | "quantity">[]
+}
+
+type ExportJson = { data?: unknown[] } & Partial<RevenueData>
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<string, string> = {
@@ -145,6 +155,16 @@ const chartConfig = {
 } satisfies ChartConfig
 
 const LIMIT = 20
+
+// PDF dibuat di browser — di atas jumlah ini pembuatannya bisa lama, kasih peringatan
+const PDF_WARN_ROWS = 3000
+
+const REPORT_TITLES: Record<string, string> = {
+  transaction: "Laporan Transaksi",
+  revenue:     "Laporan Pendapatan",
+  customer:    "Laporan Pelanggan",
+  product:     "Laporan Produk Terlaris",
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -255,6 +275,7 @@ export default function ReportsPage() {
   const [cashiers,   setCashiers]   = useState<Cashier[]>([])
   const [search,     setSearch]     = useState("")
   const [loading,    setLoading]    = useState(false)
+  const [exporting,  setExporting]  = useState<"excel" | "pdf" | null>(null)
 
   // Pagination per tab
   const [trxPage,      setTrxPage]      = useState(1)
@@ -342,26 +363,76 @@ export default function ReportsPage() {
     return () => clearTimeout(timer)
   }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Export (Excel & PDF) ───────────────────────────────────────────────────
+  // File dibuat dari data LENGKAP sesuai filter yang diambil ulang dari server
+  // (all=1), bukan dari 20 baris yang sedang tampil di tabel.
+
+  // Keterangan periode untuk header PDF & nama file
+  const exportInfo = () => {
+    if (activeTab === "customer") {
+      return { label: "Semua pelanggan (filter tanggal & kasir tidak berlaku untuk laporan ini)", fileSuffix: "semua" }
+    }
+    const from = dateRange?.from
+    const to   = dateRange?.to ?? from
+    const kasir = cashierId === "ALL" ? "Semua kasir" : (cashiers.find((c) => c.id === cashierId)?.name ?? "-")
+    return {
+      label: `Periode: ${from && to ? `${formatDate(from.toISOString())} – ${formatDate(to.toISOString())}` : "Semua tanggal"} · Kasir: ${kasir}`,
+      fileSuffix: from && to ? `${formatDateKey(from)}_sd_${formatDateKey(to)}` : "semua",
+    }
+  }
+
+  const handleExport = async (format: "excel" | "pdf") => {
+    if (exporting) return
+    setExporting(format)
+    try {
+      const params = buildParams(1)
+      params.set("all", "1")
+      const res  = await fetch(`/api/reports?${params.toString()}`)
+      const json = await res.json()
+      if (!res.ok) {
+        toast.error(json?.error ?? "Gagal menyiapkan file laporan")
+        return
+      }
+
+      if (format === "excel") {
+        exportExcel(json)
+        return
+      }
+
+      const rowCount = json.data?.length ?? json.chartData?.length ?? 0
+      if (rowCount > PDF_WARN_ROWS) {
+        toast.warning(
+          `PDF berisi ${rowCount.toLocaleString("id-ID")} baris, pembuatannya bisa lama. Untuk data besar gunakan Excel.`,
+          { duration: 10000 }
+        )
+      }
+      // Pembuatan PDF memblokir layar — beri waktu browser menampilkan spinner & peringatan dulu
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      exportPDF(json)
+    } catch {
+      toast.error("Gagal menyiapkan file laporan. Periksa koneksi lalu coba lagi.")
+    } finally {
+      setExporting(null)
+    }
+  }
+
   // ── Export PDF ─────────────────────────────────────────────────────────────
-  const handleExportPDF = () => {
+  const exportPDF = (json: ExportJson) => {
     const doc = new jsPDF()
-    const title = {
-      transaction: "Laporan Transaksi",
-      revenue:     "Laporan Pendapatan",
-      customer:    "Laporan Pelanggan",
-      product:     "Laporan Produk Terlaris",
-    }[activeTab] ?? "Laporan"
+    const title = REPORT_TITLES[activeTab] ?? "Laporan"
+    const info  = exportInfo()
 
     doc.setFontSize(14)
     doc.text(title, 14, 16)
     doc.setFontSize(9)
     doc.text(`Dicetak: ${new Intl.DateTimeFormat("id-ID", { dateStyle: "long", timeStyle: "short" }).format(new Date())}`, 14, 22)
+    doc.text(info.label, 14, 27)
 
     if (activeTab === "transaction") {
       autoTable(doc, {
-        startY:  28,
+        startY:  32,
         head: [["No. Transaksi", "Pelanggan", "Kasir", "Item Dibeli", "Qty", "Metode", "Kode Promo", "Total", "Status", "Waktu"]],
-        body: transactions.map((t) => [
+        body: ((json.data ?? []) as ExportTransactionRow[]).map((t) => [
           t.transactionNo,
           t.customer?.name ?? "-",
           t.cashier.name,
@@ -378,11 +449,11 @@ export default function ReportsPage() {
       })
     }
 
-    if (activeTab === "revenue" && revenueData) {
+    if (activeTab === "revenue" && json.chartData) {
       autoTable(doc, {
-        startY:  28,
+        startY:  32,
         head:    [["Tanggal", "Pendapatan", "Jumlah Transaksi"]],
-        body:    revenueData.chartData.map((d) => [
+        body:    json.chartData.map((d) => [
           formatDate(d.date),
           formatCurrency(d.total),
           String(d.count),
@@ -394,9 +465,9 @@ export default function ReportsPage() {
 
     if (activeTab === "customer") {
       autoTable(doc, {
-        startY:  28,
+        startY:  32,
         head:    [["Nama", "No. HP", "Kunjungan", "Total Belanja", "Terakhir"]],
-        body:    customers.map((c) => [
+        body:    ((json.data ?? []) as CustomerRow[]).map((c) => [
           c.name ?? "-",
           c.phone ?? "-",
           String(c.totalVisits),
@@ -410,9 +481,9 @@ export default function ReportsPage() {
 
     if (activeTab === "product") {
       autoTable(doc, {
-        startY:  28,
+        startY:  32,
         head:    [["Produk", "Tipe", "Total Terjual", "Total Pendapatan"]],
-        body:    products.map((p) => [
+        body:    ((json.data ?? []) as ProductRow[]).map((p) => [
           p.itemName,
           p.itemType,
           String(p.totalQty),
@@ -423,12 +494,12 @@ export default function ReportsPage() {
       })
     }
 
-    doc.save(`${title.replace(/ /g, "_")}.pdf`)
+    doc.save(`${title.replace(/ /g, "_")}_${info.fileSuffix}.pdf`)
     toast.success("PDF berhasil diexport")
   }
 
   // ── Export Excel ───────────────────────────────────────────────────────────
-  const handleExportExcel = () => {
+  const exportExcel = (json: ExportJson) => {
     let rows: unknown[][] = []
     let sheetName = "Laporan"
 
@@ -436,7 +507,7 @@ export default function ReportsPage() {
       sheetName = "Transaksi"
       rows = [
         ["No. Transaksi", "Pelanggan", "Kasir", "Item Dibeli", "Qty", "Metode Pembayaran", "Kode Promo", "Total", "Status", "Waktu"],
-        ...transactions.map((t) => [
+        ...((json.data ?? []) as ExportTransactionRow[]).map((t) => [
           t.transactionNo,
           t.customer?.name ?? "-",
           t.cashier.name,
@@ -451,11 +522,11 @@ export default function ReportsPage() {
       ]
     }
 
-    if (activeTab === "revenue" && revenueData) {
+    if (activeTab === "revenue" && json.chartData) {
       sheetName = "Pendapatan"
       rows = [
         ["Tanggal", "Pendapatan", "Jumlah Transaksi"],
-        ...revenueData.chartData.map((d) => [
+        ...json.chartData.map((d) => [
           formatDate(d.date),
           d.total,
           d.count,
@@ -467,7 +538,7 @@ export default function ReportsPage() {
       sheetName = "Pelanggan"
       rows = [
         ["Nama", "No. HP", "Total Kunjungan", "Total Belanja", "Kunjungan Terakhir"],
-        ...customers.map((c) => [
+        ...((json.data ?? []) as CustomerRow[]).map((c) => [
           c.name ?? "-",
           c.phone ?? "-",
           c.totalVisits,
@@ -481,7 +552,7 @@ export default function ReportsPage() {
       sheetName = "Produk Terlaris"
       rows = [
         ["Produk", "Tipe", "Total Terjual", "Total Pendapatan"],
-        ...products.map((p) => [
+        ...((json.data ?? []) as ProductRow[]).map((p) => [
           p.itemName,
           p.itemType,
           p.totalQty,
@@ -493,7 +564,7 @@ export default function ReportsPage() {
     const ws = XLSX.utils.aoa_to_sheet(rows)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, sheetName)
-    XLSX.writeFile(wb, `${sheetName}.xlsx`)
+    XLSX.writeFile(wb, `${(REPORT_TITLES[activeTab] ?? "Laporan").replace(/ /g, "_")}_${exportInfo().fileSuffix}.xlsx`)
     toast.success("Excel berhasil diexport")
   }
 
@@ -565,13 +636,17 @@ export default function ReportsPage() {
       )}
 
       <div className="flex gap-2 sm:ml-auto">
-        <Button variant="outline" size="sm" onClick={handleExportExcel}>
-          <Download className="mr-2 h-4 w-4" />
-          Excel
+        <Button variant="outline" size="sm" onClick={() => handleExport("excel")} disabled={exporting !== null}>
+          {exporting === "excel"
+            ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            : <Download className="mr-2 h-4 w-4" />}
+          {exporting === "excel" ? "Menyiapkan..." : "Excel"}
         </Button>
-        <Button variant="outline" size="sm" onClick={handleExportPDF}>
-          <Download className="mr-2 h-4 w-4" />
-          PDF
+        <Button variant="outline" size="sm" onClick={() => handleExport("pdf")} disabled={exporting !== null}>
+          {exporting === "pdf"
+            ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            : <Download className="mr-2 h-4 w-4" />}
+          {exporting === "pdf" ? "Menyiapkan..." : "PDF"}
         </Button>
       </div>
     </div>
