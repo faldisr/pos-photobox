@@ -115,10 +115,39 @@ export async function DELETE(
       return NextResponse.json({ error: "Cabang tidak ditemukan" }, { status: 404 })
     }
 
+    // Cabang yang sudah punya riwayat atau masih dipakai tidak boleh dihapus.
+    // Riwayat (transaksi/shift/stok) sebenarnya sudah dilindungi foreign key di DB,
+    // tapi kasir TIDAK — tanpa cek ini kasirnya diam-diam kehilangan cabang.
+    const [transaksi, shift, stok, user] = await Promise.all([
+      prisma.transaction.count({ where: { branchId: id } }),
+      prisma.shift.count({ where: { branchId: id } }),
+      prisma.inventory.count({ where: { branchId: id } }),
+      prisma.user.count({ where: { branchId: id } }),
+    ])
+    const dipakai = [
+      transaksi && `${transaksi.toLocaleString("id-ID")} transaksi`,
+      shift     && `${shift.toLocaleString("id-ID")} shift`,
+      stok      && `${stok} data stok`,
+      user      && `${user} user/kasir`,
+    ].filter(Boolean)
+    if (dipakai.length > 0) {
+      return NextResponse.json({
+        error: `Cabang tidak bisa dihapus karena sudah memiliki ${dipakai.join(", ")}. ` +
+          (transaksi || shift || stok
+            ? "Data yang sudah punya riwayat tidak boleh dihapus — nonaktifkan cabang ini sebagai gantinya."
+            : "Pindahkan user/kasir ke cabang lain terlebih dahulu."),
+      }, { status: 409 })
+    }
+
     await prisma.branch.delete({ where: { id } })
 
     return NextResponse.json({ message: "Branch deleted successfully" })
   } catch (error) {
+    // Transaksi baru bisa masuk di antara pengecekan & penghapusan — foreign key
+    // di DB tetap menolaknya (P2003); balas dengan pesan yang sama jelasnya.
+    if ((error as { code?: string }).code === "P2003") {
+      return NextResponse.json({ error: "Cabang tidak bisa dihapus karena masih memiliki data terkait. Nonaktifkan cabang ini sebagai gantinya." }, { status: 409 })
+    }
     console.error("Error deleting branch:", error)
     return NextResponse.json({ error: "Failed to delete branch" }, { status: 500 })
   }

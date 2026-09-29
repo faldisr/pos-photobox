@@ -41,6 +41,7 @@ export async function PATCH(
     }
 
     const { refundReason } = body
+    const adminId = session.user.id
 
     if (!refundReason || !refundReason.trim()) {
       return NextResponse.json({ error: "Alasan refund harus diisi" }, { status: 400 })
@@ -62,16 +63,41 @@ export async function PATCH(
       return NextResponse.json({ error: "Hanya transaksi dengan status Selesai yang bisa di-refund" }, { status: 400 })
     }
 
-    const updated = await prisma.transaction.update({
+    // Ubah status + kembalikan statistik pelanggan (kunjungan & total belanja)
+    // dalam satu transaksi DB. updateMany bersyarat status COMPLETED: dua refund
+    // bersamaan untuk transaksi yang sama tidak bisa sama-sama lolos.
+    const refunded = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.transaction.updateMany({
+        where: { id, status: "COMPLETED" },
+        data: {
+          status: "CANCELLED",
+          paymentStatus: "REFUNDED",
+          refundReason: refundReason.trim(),
+          refundedAt: new Date(),
+          cancelledBy: adminId,
+          cancelledAt: new Date(),
+        },
+      })
+      if (count === 0) return false
+
+      if (transaction.customerId) {
+        await tx.customer.update({
+          where: { id: transaction.customerId },
+          data: {
+            totalVisits: { decrement: 1 },
+            totalSpent:  { decrement: transaction.total },
+          },
+        })
+      }
+      return true
+    })
+
+    if (!refunded) {
+      return NextResponse.json({ error: "Transaksi sudah di-refund atau dibatalkan" }, { status: 400 })
+    }
+
+    const updated = await prisma.transaction.findUnique({
       where: { id },
-      data: {
-        status: "CANCELLED",
-        paymentStatus: "REFUNDED",
-        refundReason: refundReason.trim(),
-        refundedAt: new Date(),
-        cancelledBy: session.user.id,
-        cancelledAt: new Date(),
-      },
       include: {
         cashier:  { select: { name: true } },
         customer: { select: { name: true, phone: true } },

@@ -68,6 +68,22 @@ export function generateTransactionNo(): string {
   return `TRX-${year}${month}${day}-${random}`
 }
 
+const MAX_PAGE_LIMIT = 100
+
+/**
+ * Baca & validasi page/limit dari query string. `error` terisi kalau tidak valid
+ * (bukan bilangan bulat, page < 1, atau limit di luar 1–100) — supaya request
+ * aneh ditolak 400, bukan membuat query error (500) atau mengambil data tanpa batas.
+ */
+export function parsePagination(searchParams: URLSearchParams, defaultLimit: number) {
+  const page  = Number(searchParams.get("page")  ?? 1)
+  const limit = Number(searchParams.get("limit") ?? defaultLimit)
+  if (!Number.isInteger(page) || page < 1 || !Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE_LIMIT) {
+    return { page: 1, limit: defaultLimit, skip: 0, error: `Parameter halaman tidak valid (page minimal 1, limit 1–${MAX_PAGE_LIMIT})` }
+  }
+  return { page, limit, skip: (page - 1) * limit }
+}
+
 /**
  * Get payment method label
  */

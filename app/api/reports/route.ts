@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireRole } from "@/lib/auth"
+import { parsePagination } from "@/lib/utils"
+import { wibDateKey, wibDateRange } from "@/lib/wib"
 
 // Batas baris per sekali export (all=1) — melindungi memori server kalau
 // "Semua" dipilih tanpa filter tanggal setelah data menumpuk bertahun-tahun.
@@ -23,22 +25,22 @@ export async function GET(request: NextRequest) {
     const dateTo    = searchParams.get("dateTo")    ?? ""
     const cashierId = searchParams.get("cashierId") ?? ""
     const branchId  = searchParams.get("branchId")  ?? ""
-    const page      = parseInt(searchParams.get("page")  ?? "1")
-    const limit     = parseInt(searchParams.get("limit") ?? "50")
-    const skip      = (page - 1) * limit
+    const search    = (searchParams.get("search") ?? "").trim()
     // all=1: dipakai tombol Excel/PDF — semua baris sesuai filter, tanpa halaman
     const exportAll = searchParams.get("all") === "1"
+
+    const { page, limit, skip, error: pageError } = parsePagination(searchParams, 50)
+    // Tanggal = hari WIB penuh (00:00–23:59), bukan jam 07:00 atau zona waktu server
+    const { range, error: dateError } = wibDateRange(dateFrom, dateTo)
+    if (pageError || dateError) {
+      return NextResponse.json({ error: pageError ?? dateError }, { status: 400 })
+    }
 
     const where: Record<string, unknown> = {
       status: "COMPLETED",
     }
 
-    if (dateFrom || dateTo) {
-      where.createdAt = {
-        ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-        ...(dateTo   ? { lte: new Date(new Date(dateTo).setHours(23, 59, 59, 999)) } : {}),
-      }
-    }
+    if (range) where.createdAt = range
 
     if (cashierId) where.cashierId = cashierId
     if (branchId)  where.branchId  = branchId
@@ -49,9 +51,18 @@ export async function GET(request: NextRequest) {
       const whereAll: Record<string, unknown> = {
         status: { in: ["COMPLETED", "CANCELLED"] },
       }
-      if (dateFrom || dateTo) whereAll.createdAt = where.createdAt
+      if (range)     whereAll.createdAt = range
       if (cashierId) whereAll.cashierId = cashierId
       if (branchId)  whereAll.branchId  = branchId
+      // Kotak pencarian: no. transaksi, nama/HP pelanggan, atau nama kasir
+      if (search) {
+        whereAll.OR = [
+          { transactionNo: { contains: search } },
+          { customer: { name:  { contains: search } } },
+          { customer: { phone: { contains: search } } },
+          { cashier:  { name:  { contains: search } } },
+        ]
+      }
 
       if (exportAll) {
         const count = await prisma.transaction.count({ where: whereAll })
@@ -124,7 +135,7 @@ export async function GET(request: NextRequest) {
 
       const revenueMap: Record<string, { date: string; total: number; count: number }> = {}
       for (const trx of transactions) {
-        const date = trx.createdAt.toISOString().split("T")[0]
+        const date = wibDateKey(trx.createdAt)
         if (!revenueMap[date]) revenueMap[date] = { date, total: 0, count: 0 }
         revenueMap[date].total += Number(trx.total)
         revenueMap[date].count += 1

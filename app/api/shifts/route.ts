@@ -34,6 +34,15 @@ export async function POST(request: NextRequest) {
 
     const { branchId, id: cashierId } = session.user
 
+    // Cabang yang dinonaktifkan admin tidak boleh beroperasi (shift baru ditolak)
+    const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { isActive: true } })
+    if (!branch?.isActive) {
+      return NextResponse.json(
+        { error: "Cabang Anda sedang dinonaktifkan. Hubungi admin." },
+        { status: 400 }
+      )
+    }
+
     // Cek "sudah ada shift aktif" dan pembuatan shift harus satu langkah atomik.
     // Tanpa kunci, dua request yang datang bersamaan (klik ganda, Enter dua kali,
     // dua tab) sama-sama lolos pengecekan lalu sama-sama membuat shift. Baris user

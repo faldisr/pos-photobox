@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma, retryOnUniqueConflict } from "@/lib/prisma"
-import { generateTransactionNo } from "@/lib/utils"
+import { generateTransactionNo, parsePagination } from "@/lib/utils"
 import { requireRole } from "@/lib/auth"
+import { startOfWibDay, wibDateRange } from "@/lib/wib"
 
 export const dynamic = "force-dynamic"
 
@@ -11,15 +12,23 @@ export async function GET(request: NextRequest) {
     if (guard.error) return guard.error
 
     const { searchParams } = new URL(request.url)
-    const page     = parseInt(searchParams.get("page") ?? "1")
-    const limit    = parseInt(searchParams.get("limit") ?? "20")
     const search   = searchParams.get("search") ?? ""
     const method   = searchParams.get("method") ?? ""
     const dateFrom = searchParams.get("dateFrom") ?? ""
     const dateTo   = searchParams.get("dateTo") ?? ""
-    const branchId = searchParams.get("branchId") ?? ""
+    // Kasir HANYA boleh melihat transaksi cabangnya sendiri — jangan percaya
+    // parameter branchId dari browser (tanpa ini, kasir bisa membaca transaksi
+    // & data pelanggan semua cabang dengan memanggil API langsung).
+    const isCashier = guard.session.user?.role === "CASHIER"
+    const branchId = isCashier
+      ? (guard.session.user?.branchId ?? "__tanpa_cabang__")
+      : (searchParams.get("branchId") ?? "")
 
-    const skip = (page - 1) * limit
+    const { page, limit, skip, error: pageError } = parsePagination(searchParams, 20)
+    const { range, error: dateError } = wibDateRange(dateFrom, dateTo)
+    if (pageError || dateError) {
+      return NextResponse.json({ error: pageError ?? dateError }, { status: 400 })
+    }
 
     const where: Record<string, unknown> = {}
 
@@ -34,12 +43,7 @@ export async function GET(request: NextRequest) {
 
     if (method) where.paymentMethod = method
 
-    if (dateFrom || dateTo) {
-      where.createdAt = {
-        ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
-        ...(dateTo   ? { lte: new Date(new Date(dateTo).setHours(23, 59, 59, 999)) } : {}),
-      }
-    }
+    if (range) where.createdAt = range
 
     const [transactions, total] = await Promise.all([
       prisma.transaction.findMany({
@@ -150,11 +154,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Nomor antrian direset tiap tengah malam WIB (semua cabang di Jawa, UTC+7
-    // tanpa DST) — tidak bergantung pada zona waktu server.
-    const WIB_OFFSET = 7 * 60 * 60 * 1000
-    const DAY = 24 * 60 * 60 * 1000
-    const startOfDay = new Date(Math.floor((Date.now() + WIB_OFFSET) / DAY) * DAY - WIB_OFFSET)
+    // Nomor antrian direset tiap tengah malam WIB — tidak bergantung zona waktu server
+    const startOfDay = startOfWibDay()
 
     // Semua langkah simpan berjalan dalam satu transaksi database: kalau satu
     // gagal, semuanya batal — statistik pelanggan & total shift tidak ikut

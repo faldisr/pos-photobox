@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Search,
   X,
@@ -368,11 +368,29 @@ export default function ReportsPage() {
   }, [activeTab, cashierId, dateRange, search])
 
   // ── Fetch data ─────────────────────────────────────────────────────────────
+  // Nomor urut request: kalau filter/tab diganti cepat, jawaban request lama yang
+  // datang terlambat diabaikan — tidak boleh menimpa data filter yang lebih baru.
+  const latestRequest = useRef(0)
+
   const fetchData = useCallback(async (page: number) => {
+    const requestId = ++latestRequest.current
     setLoading(true)
     try {
       const res  = await fetch(`/api/reports?${buildParams(page).toString()}`)
-      const json = await res.json()
+      const json = await res.json().catch(() => null)
+      if (requestId !== latestRequest.current) return
+
+      // Gagal (sesi habis, server error, parameter salah) harus terlihat sebagai
+      // error — bukan tabel kosong yang terkesan "tidak ada transaksi"
+      if (!res.ok) {
+        toast.error(res.status === 401 ? "Sesi berakhir, silakan login kembali" : (json?.error ?? "Gagal memuat data laporan"))
+        // Jangan biarkan data filter sebelumnya tampil seolah hasil filter ini
+        if (activeTab === "transaction") setTransactions([])
+        if (activeTab === "revenue")     setRevenueData(null)
+        if (activeTab === "customer")    setCustomers([])
+        if (activeTab === "product")     setProducts([])
+        return
+      }
 
       if (activeTab === "transaction") {
         setTransactions(json.data ?? [])
@@ -385,9 +403,9 @@ export default function ReportsPage() {
       }
       if (activeTab === "product")  setProducts(json.data ?? [])
     } catch {
-      toast.error("Gagal memuat data laporan")
+      if (requestId === latestRequest.current) toast.error("Gagal memuat data laporan")
     } finally {
-      setLoading(false)
+      if (requestId === latestRequest.current) setLoading(false)
     }
   }, [activeTab, buildParams])
 
@@ -428,7 +446,9 @@ export default function ReportsPage() {
     }
     const period = periodInfo(dateRange?.from, dateRange?.to)
     const kasir  = cashierId === "ALL" ? "Semua kasir" : (cashiers.find((c) => c.id === cashierId)?.name ?? "-")
-    return { label: `Periode: ${period.label} · Kasir: ${kasir}`, fileSuffix: period.fileSuffix }
+    // Kotak pencarian kini ikut menyaring export tab Transaksi — cantumkan di PDF
+    const cari   = activeTab === "transaction" && search.trim() ? ` · Pencarian: "${search.trim()}"` : ""
+    return { label: `Periode: ${period.label} · Kasir: ${kasir}${cari}`, fileSuffix: period.fileSuffix }
   }
 
   const handleExport = async (format: "excel" | "pdf") => {
@@ -543,7 +563,7 @@ export default function ReportsPage() {
       autoTable(doc, {
         ...PDF_TABLE_STYLE,
         startY:  32,
-        head:    [["Produk", "Tipe", "Total Terjual", "Total Pendapatan"]],
+        head:    [["Produk", "Tipe", "Total Terjual", "Pendapatan Kotor (sebelum diskon)"]],
         body:    rows.map((p) => [
           p.itemName,
           p.itemType,
@@ -625,7 +645,7 @@ export default function ReportsPage() {
       const data   = (json.data ?? []) as ProductRow[]
       const totals = productTotals(data)
       rows = [
-        ["Produk", "Tipe", "Total Terjual", "Total Pendapatan"],
+        ["Produk", "Tipe", "Total Terjual", "Pendapatan Kotor (sebelum diskon)"],
         ...data.map((p) => [
           p.itemName,
           p.itemType,
@@ -1067,6 +1087,11 @@ export default function ReportsPage() {
         <TabsContent value="product" className="mt-4 space-y-4">
           {FilterArea}
 
+          <p className="text-xs text-muted-foreground">
+            Pendapatan per produk dihitung dari harga item <strong>sebelum diskon/promo</strong>,
+            sehingga totalnya bisa lebih besar dari tab Pendapatan.
+          </p>
+
           <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
@@ -1074,7 +1099,7 @@ export default function ReportsPage() {
                   <TableHead className="min-w-[160px]">Produk</TableHead>
                   <TableHead className="min-w-[100px] text-center">Tipe</TableHead>
                   <TableHead className="min-w-[100px] text-center">Total Terjual</TableHead>
-                  <TableHead className="min-w-[130px] text-center">Total Pendapatan</TableHead>
+                  <TableHead className="min-w-[130px] text-center">Pendapatan Kotor (sebelum diskon)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
