@@ -49,7 +49,7 @@ import {
 } from "@/components/ui/chart"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import jsPDF from "jspdf"
-import autoTable from "jspdf-autotable"
+import autoTable, { type UserOptions } from "jspdf-autotable"
 import * as XLSX from "xlsx"
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -200,6 +200,55 @@ function formatDateKey(date: Date) {
   const m = String(date.getMonth() + 1).padStart(2, "0")
   const d = String(date.getDate()).padStart(2, "0")
   return `${y}-${m}-${d}`
+}
+
+// ─── Export helpers ──────────────────────────────────────────────────────────
+
+const fmtCount = (n: number) => n.toLocaleString("id-ID")
+
+// Label & akhiran nama file periode — rentang satu hari cukup ditulis sekali
+function periodInfo(from?: Date, to?: Date) {
+  if (!from) return { label: "Semua tanggal", fileSuffix: "semua" }
+  const end = to ?? from
+  if (formatDateKey(from) === formatDateKey(end)) {
+    return { label: formatDate(from.toISOString()), fileSuffix: formatDateKey(from) }
+  }
+  return {
+    label:      `${formatDate(from.toISOString())} – ${formatDate(end.toISOString())}`,
+    fileSuffix: `${formatDateKey(from)}_sd_${formatDateKey(end)}`,
+  }
+}
+
+// Baris TOTAL export transaksi. Export ikut memuat transaksi yang di-refund
+// (status CANCELLED) — jumlahnya dirinci, tapi rupiahnya tidak dijumlahkan.
+function transactionTotals(rows: ExportTransactionRow[]) {
+  const completed = rows.filter((t) => t.status === "COMPLETED")
+  return {
+    summary: `${fmtCount(rows.length)} transaksi (${fmtCount(completed.length)} selesai, ${fmtCount(rows.length - completed.length)} refund)`,
+    revenue: completed.reduce((sum, t) => sum + Number(t.total), 0),
+  }
+}
+
+function revenueTotals(chartData: RevenueData["chartData"]) {
+  return {
+    revenue: chartData.reduce((sum, d) => sum + d.total, 0),
+    count:   chartData.reduce((sum, d) => sum + d.count, 0),
+  }
+}
+
+function productTotals(rows: ProductRow[]) {
+  return {
+    qty:     rows.reduce((sum, p) => sum + p.totalQty, 0),
+    revenue: rows.reduce((sum, p) => sum + p.totalRevenue, 0),
+  }
+}
+
+// Gaya tabel PDF; baris TOTAL (foot) dicetak sekali saja, di halaman terakhir
+const PDF_TABLE_STYLE: Partial<UserOptions> = {
+  styles:     { fontSize: 8 },
+  headStyles: { fillColor: [30, 30, 30] },
+  footStyles: { fillColor: [30, 30, 30], fontStyle: "bold" },
+  showFoot:   "lastPage",
 }
 
 function getPageNumbers(currentPage: number, totalPages: number): number[] {
@@ -372,13 +421,9 @@ export default function ReportsPage() {
     if (activeTab === "customer") {
       return { label: "Semua pelanggan (filter tanggal & kasir tidak berlaku untuk laporan ini)", fileSuffix: "semua" }
     }
-    const from = dateRange?.from
-    const to   = dateRange?.to ?? from
-    const kasir = cashierId === "ALL" ? "Semua kasir" : (cashiers.find((c) => c.id === cashierId)?.name ?? "-")
-    return {
-      label: `Periode: ${from && to ? `${formatDate(from.toISOString())} – ${formatDate(to.toISOString())}` : "Semua tanggal"} · Kasir: ${kasir}`,
-      fileSuffix: from && to ? `${formatDateKey(from)}_sd_${formatDateKey(to)}` : "semua",
-    }
+    const period = periodInfo(dateRange?.from, dateRange?.to)
+    const kasir  = cashierId === "ALL" ? "Semua kasir" : (cashiers.find((c) => c.id === cashierId)?.name ?? "-")
+    return { label: `Periode: ${period.label} · Kasir: ${kasir}`, fileSuffix: period.fileSuffix }
   }
 
   const handleExport = async (format: "excel" | "pdf") => {
@@ -429,10 +474,13 @@ export default function ReportsPage() {
     doc.text(info.label, 14, 27)
 
     if (activeTab === "transaction") {
+      const rows   = (json.data ?? []) as ExportTransactionRow[]
+      const totals = transactionTotals(rows)
       autoTable(doc, {
+        ...PDF_TABLE_STYLE,
         startY:  32,
         head: [["No. Transaksi", "Pelanggan", "Kasir", "Item Dibeli", "Qty", "Metode", "Kode Promo", "Total", "Status", "Waktu"]],
-        body: ((json.data ?? []) as ExportTransactionRow[]).map((t) => [
+        body: rows.map((t) => [
           t.transactionNo,
           t.customer?.name ?? "-",
           t.cashier.name,
@@ -444,13 +492,18 @@ export default function ReportsPage() {
           STATUS_LABELS[t.status] ?? t.status,
           formatDateTime(t.createdAt),
         ]),
-        styles:     { fontSize: 8 },
-        headStyles: { fillColor: [30, 30, 30] },
+        foot: [[
+          { content: `TOTAL: ${totals.summary}`, colSpan: 7 },
+          formatCurrency(totals.revenue),
+          { content: "refund tidak dihitung", colSpan: 2 },
+        ]],
       })
     }
 
     if (activeTab === "revenue" && json.chartData) {
+      const totals = revenueTotals(json.chartData)
       autoTable(doc, {
+        ...PDF_TABLE_STYLE,
         startY:  32,
         head:    [["Tanggal", "Pendapatan", "Jumlah Transaksi"]],
         body:    json.chartData.map((d) => [
@@ -458,39 +511,41 @@ export default function ReportsPage() {
           formatCurrency(d.total),
           String(d.count),
         ]),
-        styles:     { fontSize: 8 },
-        headStyles: { fillColor: [30, 30, 30] },
+        foot: [["TOTAL", formatCurrency(totals.revenue), fmtCount(totals.count)]],
       })
     }
 
     if (activeTab === "customer") {
+      const rows = (json.data ?? []) as CustomerRow[]
       autoTable(doc, {
+        ...PDF_TABLE_STYLE,
         startY:  32,
         head:    [["Nama", "No. HP", "Kunjungan", "Total Belanja", "Terakhir"]],
-        body:    ((json.data ?? []) as CustomerRow[]).map((c) => [
+        body:    rows.map((c) => [
           c.name ?? "-",
           c.phone ?? "-",
           String(c.totalVisits),
           formatCurrency(Number(c.totalSpent)),
           formatDate(c.lastVisit),
         ]),
-        styles:     { fontSize: 8 },
-        headStyles: { fillColor: [30, 30, 30] },
+        foot: [[{ content: `TOTAL: ${fmtCount(rows.length)} pelanggan`, colSpan: 5 }]],
       })
     }
 
     if (activeTab === "product") {
+      const rows   = (json.data ?? []) as ProductRow[]
+      const totals = productTotals(rows)
       autoTable(doc, {
+        ...PDF_TABLE_STYLE,
         startY:  32,
         head:    [["Produk", "Tipe", "Total Terjual", "Total Pendapatan"]],
-        body:    ((json.data ?? []) as ProductRow[]).map((p) => [
+        body:    rows.map((p) => [
           p.itemName,
           p.itemType,
           String(p.totalQty),
           formatCurrency(p.totalRevenue),
         ]),
-        styles:     { fontSize: 8 },
-        headStyles: { fillColor: [30, 30, 30] },
+        foot: [[`TOTAL (${fmtCount(rows.length)} produk)`, "", fmtCount(totals.qty), formatCurrency(totals.revenue)]],
       })
     }
 
@@ -503,11 +558,15 @@ export default function ReportsPage() {
     let rows: unknown[][] = []
     let sheetName = "Laporan"
 
+    // Baris TOTAL diletakkan setelah satu baris kosong, supaya tidak ikut
+    // tersaring/terurut bersama data di Excel. Angka rupiah tetap berupa angka.
     if (activeTab === "transaction") {
       sheetName = "Transaksi"
+      const data   = (json.data ?? []) as ExportTransactionRow[]
+      const totals = transactionTotals(data)
       rows = [
         ["No. Transaksi", "Pelanggan", "Kasir", "Item Dibeli", "Qty", "Metode Pembayaran", "Kode Promo", "Total", "Status", "Waktu"],
-        ...((json.data ?? []) as ExportTransactionRow[]).map((t) => [
+        ...data.map((t) => [
           t.transactionNo,
           t.customer?.name ?? "-",
           t.cashier.name,
@@ -519,11 +578,14 @@ export default function ReportsPage() {
           STATUS_LABELS[t.status] ?? t.status,
           formatDateTime(t.createdAt),
         ]),
+        [],
+        ["TOTAL", totals.summary, "", "", "", "", "", totals.revenue, "refund tidak dihitung", ""],
       ]
     }
 
     if (activeTab === "revenue" && json.chartData) {
       sheetName = "Pendapatan"
+      const totals = revenueTotals(json.chartData)
       rows = [
         ["Tanggal", "Pendapatan", "Jumlah Transaksi"],
         ...json.chartData.map((d) => [
@@ -531,33 +593,42 @@ export default function ReportsPage() {
           d.total,
           d.count,
         ]),
+        [],
+        ["TOTAL", totals.revenue, totals.count],
       ]
     }
 
     if (activeTab === "customer") {
       sheetName = "Pelanggan"
+      const data = (json.data ?? []) as CustomerRow[]
       rows = [
         ["Nama", "No. HP", "Total Kunjungan", "Total Belanja", "Kunjungan Terakhir"],
-        ...((json.data ?? []) as CustomerRow[]).map((c) => [
+        ...data.map((c) => [
           c.name ?? "-",
           c.phone ?? "-",
           c.totalVisits,
           Number(c.totalSpent),
           formatDate(c.lastVisit),
         ]),
+        [],
+        ["TOTAL", `${fmtCount(data.length)} pelanggan`],
       ]
     }
 
     if (activeTab === "product") {
       sheetName = "Produk Terlaris"
+      const data   = (json.data ?? []) as ProductRow[]
+      const totals = productTotals(data)
       rows = [
         ["Produk", "Tipe", "Total Terjual", "Total Pendapatan"],
-        ...((json.data ?? []) as ProductRow[]).map((p) => [
+        ...data.map((p) => [
           p.itemName,
           p.itemType,
           p.totalQty,
           p.totalRevenue,
         ]),
+        [],
+        ["TOTAL", `${fmtCount(data.length)} produk`, totals.qty, totals.revenue],
       ]
     }
 
