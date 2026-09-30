@@ -68,6 +68,22 @@ export function generateTransactionNo(): string {
   return `TRX-${year}${month}${day}-${random}`
 }
 
+/** Selisih kas (Rp) yang mewajibkan kasir mengisi alasan saat tutup shift */
+export const SELISIH_WAJIB_ALASAN = 10_000
+
+/**
+ * Validasi nominal kas yang diketik kasir. Kasir terbiasa menyingkat ribuan
+ * ("300" untuk Rp300.000), jadi 1–999 ditolak — nominal harus ditulis lengkap.
+ * 0 tetap boleh (mis. tidak ada uang yang disetor). null = valid.
+ */
+export function rupiahError(value: unknown, label: string): string | null {
+  const n = typeof value === "string" && value.trim() !== "" ? Number(value) : value
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return `${label} tidak valid`
+  if (n > 0 && n < 1000) return `${label} harus ditulis lengkap, contoh 300.000 (bukan 300)`
+  if (n > 99_999_999) return `${label} terlalu besar`
+  return null
+}
+
 const MAX_PAGE_LIMIT = 100
 
 /**

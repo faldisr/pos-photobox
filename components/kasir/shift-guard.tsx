@@ -4,8 +4,9 @@ import { useRef, useState } from "react"
 import { Clock, PlayCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RupiahInput } from "@/components/kasir/rupiah-input"
+import { rupiahError } from "@/lib/utils"
 import {
   Card,
   CardContent,
@@ -29,8 +30,9 @@ export function ShiftGuard({ onShiftStarted }: ShiftGuardProps) {
   const handleStartShift = async () => {
     if (submitting.current) return
 
-    if (!openingBalance || isNaN(parseFloat(openingBalance))) {
-      toast.error("Masukkan saldo awal yang valid")
+    const invalid = openingBalance === "" ? "Masukkan saldo awal" : rupiahError(Number(openingBalance), "Saldo awal")
+    if (invalid) {
+      toast.error(invalid)
       return
     }
 
@@ -40,7 +42,7 @@ export function ShiftGuard({ onShiftStarted }: ShiftGuardProps) {
       const res = await fetch("/api/shifts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openingBalance: parseFloat(openingBalance) }),
+        body: JSON.stringify({ openingBalance: Number(openingBalance) }),
       })
 
       if (res.ok) {
@@ -73,14 +75,13 @@ export function ShiftGuard({ onShiftStarted }: ShiftGuardProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="openingBalance">Saldo Awal Kas (Rp)</Label>
-            <Input
+            <Label htmlFor="openingBalance">Saldo Awal Kas</Label>
+            <RupiahInput
               id="openingBalance"
-              type="number"
-              placeholder="Contoh: 500000"
+              label="Saldo awal"
               value={openingBalance}
-              onChange={(e) => setOpeningBalance(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleStartShift()}
+              onChange={setOpeningBalance}
+              onEnter={handleStartShift}
             />
           </div>
           <Button

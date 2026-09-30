@@ -109,6 +109,27 @@ type Meta = {
   totalPages: number
 }
 
+// Angka Decimal dari API bisa berupa string — selalu dibungkus Number() saat dipakai
+type Money = number | string
+type ShiftRow = {
+  id: string
+  shiftNo: string
+  startTime: string
+  endTime: string | null
+  openingBalance: Money
+  totalTransactions: number
+  totalSales: Money
+  cashSales: Money
+  expectedBalance: Money | null
+  cashDeposit: Money | null
+  cashRemaining: Money | null
+  closingBalance: Money | null
+  difference: Money | null
+  notes: string | null
+  cashier: { name: string }
+  branch: { name: string }
+}
+
 // Baris export transaksi: API (all=1) hanya mengirim kolom yang dicetak di file
 type ExportTransactionRow = Pick<TransactionRow,
   "transactionNo" | "createdAt" | "cashier" | "total" | "paymentMethod" | "promoCode" | "status"> & {
@@ -164,6 +185,7 @@ const REPORT_TITLES: Record<string, string> = {
   revenue:     "Laporan Pendapatan",
   customer:    "Laporan Pelanggan",
   product:     "Laporan Produk Terlaris",
+  shift:       "Laporan Shift",
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -245,6 +267,50 @@ function productTotals(rows: ProductRow[]) {
   return {
     qty:     rows.reduce((sum, p) => sum + p.totalQty, 0),
     revenue: rows.reduce((sum, p) => sum + p.totalRevenue, 0),
+  }
+}
+
+// Kas seharusnya: tersimpan saat shift ditutup; untuk shift yang masih terbuka
+// dihitung sementara dari saldo awal + penjualan tunai sejauh ini
+const shiftExpected = (s: ShiftRow) =>
+  s.expectedBalance !== null ? Number(s.expectedBalance) : Number(s.openingBalance) + Number(s.cashSales)
+const optMoney = (v: Money | null) => (v === null ? null : Number(v))
+
+// Satu baris laporan shift — dipakai tabel layar, Excel (angka), dan PDF (teks)
+function shiftCells(s: ShiftRow) {
+  return {
+    shiftNo:   s.shiftNo,
+    kasir:     s.cashier.name,
+    cabang:    s.branch.name,
+    buka:      formatDateTime(s.startTime),
+    tutup:     s.endTime ? formatDateTime(s.endTime) : "Masih terbuka",
+    trx:       s.totalTransactions,
+    penjualan: Number(s.totalSales),
+    tunai:     Number(s.cashSales),
+    seharusnya: shiftExpected(s),
+    disetor:   optMoney(s.cashDeposit),
+    sisa:      optMoney(s.cashRemaining),
+    dihitung:  optMoney(s.closingBalance),
+    selisih:   optMoney(s.difference),
+    catatan:   s.notes ?? "",
+  }
+}
+
+const SHIFT_HEADERS = ["No. Shift", "Kasir", "Cabang", "Buka", "Tutup", "Trx", "Penjualan", "Tunai",
+  "Kas Seharusnya", "Disetor", "Sisa di Laci", "Total Dihitung", "Selisih", "Catatan"]
+
+function shiftTotals(rows: ShiftRow[]) {
+  // Dibulatkan ke sen: penjumlahan desimal (mis. selisih ,78) di JS bisa jadi -8522889.780000001
+  const sum = (f: (c: ReturnType<typeof shiftCells>) => number | null) =>
+    Math.round(rows.reduce((acc, s) => acc + (f(shiftCells(s)) ?? 0), 0) * 100) / 100
+  return {
+    trx:       sum((c) => c.trx),
+    penjualan: sum((c) => c.penjualan),
+    tunai:     sum((c) => c.tunai),
+    disetor:   sum((c) => c.disetor),
+    sisa:      sum((c) => c.sisa),
+    dihitung:  sum((c) => c.dihitung),
+    selisih:   sum((c) => c.selisih),
   }
 }
 
@@ -334,6 +400,9 @@ export default function ReportsPage() {
   // Pagination per tab
   const [trxPage,      setTrxPage]      = useState(1)
   const [customerPage, setCustomerPage] = useState(1)
+  const [shiftPage,    setShiftPage]    = useState(1)
+  const [shiftMeta,    setShiftMeta]    = useState<Meta>({ total: 0, page: 1, limit: LIMIT, totalPages: 1 })
+  const [shifts,       setShifts]       = useState<ShiftRow[]>([])
   // Perubahan 1 — Tambah refundCount di tipe Meta tab transaksi
   const [trxMeta,      setTrxMeta]      = useState<Meta & { refundCount?: number }>({ total: 0, page: 1, limit: LIMIT, totalPages: 1, refundCount: 0 })
   const [customerMeta, setCustomerMeta] = useState<Meta>({ total: 0, page: 1, limit: LIMIT, totalPages: 1 })
@@ -389,6 +458,7 @@ export default function ReportsPage() {
         if (activeTab === "revenue")     setRevenueData(null)
         if (activeTab === "customer")    setCustomers([])
         if (activeTab === "product")     setProducts([])
+        if (activeTab === "shift")       setShifts([])
         return
       }
 
@@ -402,6 +472,10 @@ export default function ReportsPage() {
         setCustomerMeta(json.meta ?? { total: 0, page: 1, limit: LIMIT, totalPages: 1 })
       }
       if (activeTab === "product")  setProducts(json.data ?? [])
+      if (activeTab === "shift") {
+        setShifts(json.data ?? [])
+        setShiftMeta(json.meta ?? { total: 0, page: 1, limit: LIMIT, totalPages: 1 })
+      }
     } catch {
       if (requestId === latestRequest.current) toast.error("Gagal memuat data laporan")
     } finally {
@@ -413,6 +487,7 @@ export default function ReportsPage() {
   useEffect(() => {
     setTrxPage(1)
     setCustomerPage(1)
+    setShiftPage(1)
     fetchData(1)
   }, [activeTab, cashierId, dateRange, fetchData])
 
@@ -424,6 +499,10 @@ export default function ReportsPage() {
   useEffect(() => {
     if (activeTab === "customer") fetchData(customerPage)
   }, [customerPage]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === "shift") fetchData(shiftPage)
+  }, [shiftPage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Search transaksi — debounce reset page
   useEffect(() => {
@@ -488,7 +567,8 @@ export default function ReportsPage() {
 
   // ── Export PDF ─────────────────────────────────────────────────────────────
   const exportPDF = (json: ExportJson) => {
-    const doc = new jsPDF()
+    // Laporan shift punya banyak kolom — pakai kertas mendatar
+    const doc = new jsPDF(activeTab === "shift" ? { orientation: "landscape" } : undefined)
     const title = REPORT_TITLES[activeTab] ?? "Laporan"
     const info  = exportInfo()
 
@@ -574,6 +654,29 @@ export default function ReportsPage() {
       })
     }
 
+    if (activeTab === "shift") {
+      const rows   = (json.data ?? []) as ShiftRow[]
+      const totals = shiftTotals(rows)
+      const rp = (v: number | null) => (v === null ? "-" : formatCurrency(v))
+      autoTable(doc, {
+        ...PDF_TABLE_STYLE,
+        styles:  { fontSize: 7 },
+        startY:  32,
+        head:    [SHIFT_HEADERS],
+        body:    rows.map((s) => {
+          const c = shiftCells(s)
+          return [c.shiftNo, c.kasir, c.cabang, c.buka, c.tutup, String(c.trx), rp(c.penjualan), rp(c.tunai),
+            rp(c.seharusnya), rp(c.disetor), rp(c.sisa), rp(c.dihitung), rp(c.selisih), c.catatan || "-"]
+        }),
+        foot: [[
+          { content: `TOTAL: ${fmtCount(rows.length)} shift`, colSpan: 5 },
+          fmtCount(totals.trx), formatCurrency(totals.penjualan), formatCurrency(totals.tunai), "",
+          formatCurrency(totals.disetor), formatCurrency(totals.sisa), formatCurrency(totals.dihitung),
+          formatCurrency(totals.selisih), "",
+        ]],
+      })
+    }
+
     doc.save(`${title.replace(/ /g, "_")}_${info.fileSuffix}.pdf`)
     toast.success("PDF berhasil diexport")
   }
@@ -654,6 +757,23 @@ export default function ReportsPage() {
         ]),
         [],
         ["TOTAL", `${fmtCount(data.length)} produk`, totals.qty, totals.revenue],
+      ]
+    }
+
+    if (activeTab === "shift") {
+      sheetName = "Shift"
+      const data   = (json.data ?? []) as ShiftRow[]
+      const totals = shiftTotals(data)
+      rows = [
+        SHIFT_HEADERS,
+        ...data.map((s) => {
+          const c = shiftCells(s)
+          return [c.shiftNo, c.kasir, c.cabang, c.buka, c.tutup, c.trx, c.penjualan, c.tunai,
+            c.seharusnya, c.disetor ?? "", c.sisa ?? "", c.dihitung ?? "", c.selisih ?? "", c.catatan]
+        }),
+        [],
+        ["TOTAL", `${fmtCount(data.length)} shift`, "", "", "", totals.trx, totals.penjualan, totals.tunai,
+          "", totals.disetor, totals.sisa, totals.dihitung, totals.selisih, ""],
       ]
     }
 
@@ -755,16 +875,17 @@ export default function ReportsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight md:text-3xl">Laporan</h1>
         <p className="text-muted-foreground text-sm md:text-base">
-          Laporan transaksi, pendapatan, pelanggan, dan produk terlaris
+          Laporan transaksi, pendapatan, pelanggan, produk terlaris, dan hitungan kas shift
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSearch("") }}>
-        <TabsList className="grid w-full max-w-lg grid-cols-4">
+        <TabsList className="grid w-full max-w-xl grid-cols-5">
           <TabsTrigger value="transaction">Transaksi</TabsTrigger>
           <TabsTrigger value="revenue">Pendapatan</TabsTrigger>
           <TabsTrigger value="customer">Pelanggan</TabsTrigger>
           <TabsTrigger value="product">Produk</TabsTrigger>
+          <TabsTrigger value="shift">Shift</TabsTrigger>
         </TabsList>
 
         {/* ── Tab Transaksi ─────────────────────────────────────────────── */}
@@ -1131,6 +1252,75 @@ export default function ReportsPage() {
                 )}
               </TableBody>
             </Table>
+          </div>
+        </TabsContent>
+
+        {/* ── Tab Shift (hitungan kas per shift) ────────────────────────── */}
+        <TabsContent value="shift" className="mt-4 space-y-4">
+          {FilterArea}
+
+          <p className="text-xs text-muted-foreground">
+            Kas seharusnya = saldo awal + penjualan tunai (transaksi yang di-refund tidak dihitung).
+            Selisih = total uang dihitung − kas seharusnya.
+          </p>
+
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {SHIFT_HEADERS.map((h) => (
+                    <TableHead key={h} className="whitespace-nowrap text-center">{h}</TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={SHIFT_HEADERS.length} className="text-center text-muted-foreground">
+                      Memuat data...
+                    </TableCell>
+                  </TableRow>
+                ) : shifts.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={SHIFT_HEADERS.length} className="text-center text-muted-foreground">
+                      Tidak ada data shift
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  shifts.map((s) => {
+                    const c = shiftCells(s)
+                    const rp = (v: number | null) => (v === null ? <span className="text-muted-foreground">-</span> : formatCurrency(v))
+                    return (
+                      <TableRow key={s.id}>
+                        <TableCell className="font-mono text-sm font-medium whitespace-nowrap">{c.shiftNo}</TableCell>
+                        <TableCell className="text-sm">{c.kasir}</TableCell>
+                        <TableCell className="text-sm">{c.cabang}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{c.buka}</TableCell>
+                        <TableCell className="text-sm whitespace-nowrap">
+                          {s.endTime ? <span className="text-muted-foreground">{c.tutup}</span> : <Badge variant="outline">{c.tutup}</Badge>}
+                        </TableCell>
+                        <TableCell className="text-sm text-center">{c.trx}</TableCell>
+                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.penjualan)}</TableCell>
+                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.tunai)}</TableCell>
+                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.seharusnya)}</TableCell>
+                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.disetor)}</TableCell>
+                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.sisa)}</TableCell>
+                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.dihitung)}</TableCell>
+                        <TableCell className={`text-sm text-right font-medium whitespace-nowrap ${c.selisih ? "text-destructive" : ""}`}>
+                          {c.selisih !== null && c.selisih > 0 ? "+" : ""}{rp(c.selisih)}
+                        </TableCell>
+                        <TableCell className="text-sm min-w-[160px]">{c.catatan || <span className="text-muted-foreground">-</span>}</TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+            <PaginationBar
+              page={shiftPage}
+              meta={shiftMeta}
+              onPageChange={setShiftPage}
+            />
           </div>
         </TabsContent>
 

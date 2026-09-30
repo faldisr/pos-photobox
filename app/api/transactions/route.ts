@@ -107,13 +107,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Metode pembayaran harus dipilih" }, { status: 400 })
     }
 
-    const shift = await prisma.shift.findUnique({
+    const shift = typeof shiftId === "string" ? await prisma.shift.findUnique({
       where: { id: shiftId },
-      select: { branchId: true, cashierId: true },
-    })
+      select: { branchId: true, cashierId: true, startTime: true, endTime: true },
+    }) : null
 
     if (!shift) {
       return NextResponse.json({ error: "Shift tidak ditemukan" }, { status: 404 })
+    }
+
+    // Transaksi hanya boleh masuk ke shift milik akun yang login, yang masih terbuka,
+    // dan dibuka hari ini (WIB) — shift kemarin harus ditutup dulu dengan hitungan kas
+    if (shift.cashierId !== guard.session.user?.id) {
+      return NextResponse.json({ error: "Shift ini bukan milik akun Anda" }, { status: 403 })
+    }
+    if (shift.endTime) {
+      return NextResponse.json({ error: "Shift sudah ditutup. Muat ulang halaman lalu buka shift baru." }, { status: 400 })
+    }
+    if (shift.startTime < startOfWibDay()) {
+      const tanggal = new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", timeZone: "Asia/Jakarta" }).format(shift.startTime)
+      return NextResponse.json(
+        { error: `Shift tanggal ${tanggal} belum ditutup. Tutup shift itu dulu, lalu buka shift baru.` },
+        { status: 400 }
+      )
     }
 
     if (paperId && printQty) {
@@ -167,6 +183,10 @@ export async function POST(request: NextRequest) {
       // mendapat nomor antrian yang sama, saling deadlock di baris shift, atau
       // saling menimpa potongan stok kertas.
       await tx.$queryRaw`SELECT id FROM branches WHERE id = ${shift.branchId} FOR UPDATE`
+
+      // Cek ulang di dalam kunci: shift bisa saja baru ditutup sejak pengecekan di atas
+      const stillOpen = await tx.shift.count({ where: { id: shiftId, endTime: null } })
+      if (!stillOpen) return null
 
       const countToday = await tx.transaction.count({
         where: { branchId: shift.branchId, createdAt: { gte: startOfDay } },
@@ -290,6 +310,9 @@ export async function POST(request: NextRequest) {
     }, { timeout: 10000 })
 
     const transaction = await retryOnUniqueConflict(saveTransaction, "transactionNo")
+    if (!transaction) {
+      return NextResponse.json({ error: "Shift sudah ditutup. Muat ulang halaman lalu buka shift baru." }, { status: 400 })
+    }
 
     return NextResponse.json(transaction, { status: 201 })
   } catch (error) {

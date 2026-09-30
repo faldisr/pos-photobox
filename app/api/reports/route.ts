@@ -230,6 +230,40 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ data: sorted })
     }
 
+    // ─── Laporan Shift (hasil hitungan kas per shift) ──────────────────────
+    if (type === "shift") {
+      const whereShift: Record<string, unknown> = {}
+      if (range)     whereShift.startTime = range // periode = tanggal shift dibuka
+      if (cashierId) whereShift.cashierId = cashierId
+      if (branchId)  whereShift.branchId  = branchId
+
+      const shiftSelect = {
+        id: true, shiftNo: true, startTime: true, endTime: true,
+        openingBalance: true, totalTransactions: true, totalSales: true,
+        cashSales: true, cardSales: true, qrisSales: true, otherSales: true,
+        expectedBalance: true, cashDeposit: true, cashRemaining: true,
+        closingBalance: true, difference: true, notes: true,
+        cashier: { select: { name: true } },
+        branch:  { select: { name: true } },
+      }
+
+      if (exportAll) {
+        const count = await prisma.shift.count({ where: whereShift })
+        if (count > EXPORT_MAX_ROWS) return tooManyRows(count, "Persempit rentang tanggal lalu coba lagi.")
+        const data = await prisma.shift.findMany({ where: whereShift, orderBy: { startTime: "desc" }, select: shiftSelect })
+        return NextResponse.json({ data })
+      }
+
+      const [shifts, total] = await Promise.all([
+        prisma.shift.findMany({ where: whereShift, orderBy: { startTime: "desc" }, skip, take: limit, select: shiftSelect }),
+        prisma.shift.count({ where: whereShift }),
+      ])
+      return NextResponse.json({
+        data: shifts,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      })
+    }
+
     return NextResponse.json({ error: "Tipe laporan tidak valid" }, { status: 400 })
   } catch (error) {
     console.error("Error fetching report:", error)

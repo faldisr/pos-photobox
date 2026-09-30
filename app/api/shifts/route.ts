@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma, retryOnUniqueConflict } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
-import { generateTransactionNo } from "@/lib/utils"
+import { generateTransactionNo, rupiahError } from "@/lib/utils"
 
 function generateShiftNo() {
   const now = new Date()
@@ -21,8 +21,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { openingBalance } = body
 
-    if (openingBalance === undefined || openingBalance < 0) {
-      return NextResponse.json({ error: "Saldo awal tidak valid" }, { status: 400 })
+    const invalid = rupiahError(openingBalance, "Saldo awal")
+    if (invalid) {
+      return NextResponse.json({ error: invalid }, { status: 400 })
     }
 
     if (!session.user.branchId) {

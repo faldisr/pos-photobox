@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
+import { recalcShiftTotals } from "@/lib/shift"
 
 export async function PATCH(
   request: NextRequest,
@@ -64,9 +65,14 @@ export async function PATCH(
     }
 
     // Ubah status + kembalikan statistik pelanggan (kunjungan & total belanja)
-    // dalam satu transaksi DB. updateMany bersyarat status COMPLETED: dua refund
-    // bersamaan untuk transaksi yang sama tidak bisa sama-sama lolos.
+    // + hitung ulang total shift asal, dalam satu transaksi DB. updateMany bersyarat
+    // status COMPLETED: dua refund bersamaan untuk transaksi yang sama tidak bisa
+    // sama-sama lolos.
     const refunded = await prisma.$transaction(async (tx) => {
+      // Antre dengan penyimpanan transaksi di cabang yang sama — hitung ulang total
+      // shift tidak boleh menimpa pembayaran yang sedang disimpan
+      await tx.$queryRaw`SELECT id FROM branches WHERE id = ${transaction.branchId} FOR UPDATE`
+
       const { count } = await tx.transaction.updateMany({
         where: { id, status: "COMPLETED" },
         data: {
@@ -89,6 +95,9 @@ export async function PATCH(
           },
         })
       }
+
+      // Refund = koreksi: transaksinya tidak dihitung lagi di total shift asalnya
+      if (transaction.shiftId) await recalcShiftTotals(tx, transaction.shiftId)
       return true
     })
 

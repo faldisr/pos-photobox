@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { StopCircle } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RupiahInput } from "@/components/kasir/rupiah-input"
+import { rupiahError, SELISIH_WAJIB_ALASAN } from "@/lib/utils"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -61,9 +62,19 @@ export function ShiftEndDialog({
 }: ShiftEndDialogProps) {
   const [shiftDetail, setShiftDetail] = useState<ShiftDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
-  const [closingBalance, setClosingBalance] = useState("")
+  const [cashDeposit, setCashDeposit] = useState("")
+  const [cashRemaining, setCashRemaining] = useState("")
   const [notes, setNotes] = useState("")
   const [loading, setLoading] = useState(false)
+  // Penjaga klik ganda yang langsung berlaku (state loading baru terbaca setelah render ulang)
+  const submitting = useRef(false)
+
+  // Hitungan kas: uang disetor + modal/receh yang ditinggal di laci
+  const filled = cashDeposit !== "" && cashRemaining !== ""
+  const counted = Number(cashDeposit || 0) + Number(cashRemaining || 0)
+  const expected = shiftDetail ? Number(shiftDetail.openingBalance) + Number(shiftDetail.cashSales) : 0
+  const difference = counted - expected
+  const needsReason = filled && Math.abs(difference) >= SELISIH_WAJIB_ALASAN
 
   useEffect(() => {
     if (!open) return
@@ -88,33 +99,49 @@ export function ShiftEndDialog({
     fetchShiftDetail()
   }, [open, shiftId])
 
-  const handleClose = () => {
-    setClosingBalance("")
+  const reset = () => {
+    setCashDeposit("")
+    setCashRemaining("")
     setNotes("")
     setShiftDetail(null)
     onOpenChange(false)
   }
 
+  // Selama shift sedang ditutup, dialog tidak bisa ditutup (Esc/klik luar)
+  const handleClose = () => {
+    if (!loading) reset()
+  }
+
   const handleEndShift = async () => {
-    if (!closingBalance || isNaN(parseFloat(closingBalance))) {
-      toast.error("Masukkan saldo penutup yang valid")
+    if (submitting.current) return
+    const invalid =
+      (cashDeposit === "" ? "Isi uang disetor (tulis 0 kalau tidak ada)" : rupiahError(Number(cashDeposit), "Uang disetor")) ??
+      (cashRemaining === "" ? "Isi modal/receh di laci (tulis 0 kalau tidak ada)" : rupiahError(Number(cashRemaining), "Modal/receh di laci"))
+    if (invalid) {
+      toast.error(invalid)
+      return
+    }
+    if (needsReason && !notes.trim()) {
+      toast.error("Selisih kas cukup besar — isi alasan selisih di catatan")
       return
     }
 
+    submitting.current = true
     setLoading(true)
     try {
       const res = await fetch(`/api/shifts/${shiftId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          closingBalance: parseFloat(closingBalance),
-          notes: notes || null,
+          cashDeposit: Number(cashDeposit),
+          cashRemaining: Number(cashRemaining),
+          notes: notes.trim() || null,
         }),
       })
 
       if (res.ok) {
         toast.success("Shift berhasil ditutup")
-        handleClose()
+        reset()
         onShiftEnded()
       } else {
         const err = await res.json()
@@ -123,13 +150,15 @@ export function ShiftEndDialog({
     } catch {
       toast.error("Terjadi kesalahan, coba lagi")
     } finally {
+      submitting.current = false
       setLoading(false)
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="w-[95vw] max-w-md">
+      {/* Bisa digulir: di layar laptop isi dialog lebih tinggi dari layar, tombol Tutup Shift jangan sampai terpotong */}
+      <DialogContent className="w-[95vw] max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Tutup Shift</DialogTitle>
           <DialogDescription>
@@ -193,24 +222,43 @@ export function ShiftEndDialog({
               </div>
             </div>
 
-            {/* Input Saldo Penutup */}
-            <div className="space-y-2">
-              <Label htmlFor="closingBalance">Saldo Penutup Kas (Rp)</Label>
-              <Input
-                id="closingBalance"
-                type="number"
-                placeholder="Masukkan jumlah uang di laci"
-                value={closingBalance}
-                onChange={(e) => setClosingBalance(e.target.value)}
-              />
+            {/* Hitungan kas: setor + modal/receh */}
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="cashDeposit">Uang Disetor</Label>
+                <RupiahInput id="cashDeposit" label="Uang disetor" value={cashDeposit} onChange={setCashDeposit} placeholder="Contoh: 450.000" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cashRemaining">Modal/Receh Ditinggal di Laci</Label>
+                <RupiahInput id="cashRemaining" label="Modal/receh di laci" value={cashRemaining} onChange={setCashRemaining} placeholder="Contoh: 30.000" />
+              </div>
+              {filled && (
+                <div className="rounded-lg bg-muted/50 p-3 space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total uang dihitung</span>
+                    <span className="font-medium">{formatCurrency(counted)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Kas seharusnya (saldo awal + tunai)</span>
+                    <span>{formatCurrency(expected)}</span>
+                  </div>
+                  <Separator />
+                  <div className={`flex justify-between font-medium ${difference === 0 ? "text-green-700" : "text-destructive"}`}>
+                    <span>Selisih</span>
+                    <span>{difference > 0 ? "+" : ""}{formatCurrency(difference)}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Catatan */}
+            {/* Catatan — wajib kalau selisih besar */}
             <div className="space-y-2">
-              <Label htmlFor="notes">Catatan (opsional)</Label>
+              <Label htmlFor="notes" className={needsReason ? "text-destructive" : undefined}>
+                {needsReason ? "Alasan selisih (wajib)" : "Catatan (opsional)"}
+              </Label>
               <Textarea
                 id="notes"
-                placeholder="Catatan penutupan shift..."
+                placeholder={needsReason ? "Jelaskan kenapa uang di laci berbeda..." : "Catatan penutupan shift..."}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="resize-none"

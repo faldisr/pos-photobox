@@ -1,12 +1,14 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { toast } from "sonner"
+import { startOfWibDay, wibHour } from "@/lib/wib"
 import { ProductPanel } from "@/components/kasir/product-panel"
 import { CartPanel } from "@/components/kasir/cart-panel"
 import { ShiftGuard } from "@/components/kasir/shift-guard"
 import { ShiftEndDialog } from "@/components/kasir/shift-end-dialog"
 import { PrinterManagerDialog } from "@/components/kasir/printer-manager-dialog"
-import { ShoppingCart, StopCircle, Printer } from "lucide-react"
+import { ShoppingCart, StopCircle, Printer, AlarmClock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -50,6 +52,30 @@ export default function KasirPage() {
   const [cartSheetOpen, setCartSheetOpen] = useState(false)
   const [endDialogOpen, setEndDialogOpen] = useState(false)
   const [printerManagerOpen, setPrinterManagerOpen] = useState(false)
+
+  // Jam sekarang, diperbarui tiap 30 detik — untuk pengingat tutup shift & shift kemarin
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Pukul 21.00 WIB ke atas: ingatkan kasir menutup shift sebelum pulang
+  const closeReminder = !!activeShift && wibHour(now) >= 21
+  const remindedShift = useRef<string | null>(null)
+  useEffect(() => {
+    if (!closeReminder || !activeShift || remindedShift.current === activeShift.id) return
+    // Ditunda sebentar: toast yang dipanggil bersamaan dengan "Shift berhasil dibuka"
+    // (saat layar berganti) bisa hilang tidak tampil di sonner
+    const timer = setTimeout(() => {
+      remindedShift.current = activeShift.id
+      toast.warning("Sudah pukul 21.00 — jangan lupa tutup shift sebelum pulang.", { duration: 15000 })
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [closeReminder, activeShift])
+
+  // Shift yang dibuka kemarin (atau sebelumnya) harus ditutup dulu sebelum bertransaksi
+  const staleShift = !!activeShift && startOfWibDay(new Date(activeShift.startTime)) < startOfWibDay(now)
 
   const fetchActiveShift = useCallback(async () => {
     try {
@@ -131,6 +157,45 @@ export default function KasirPage() {
     )
   }
 
+  const endDialog = (
+    <ShiftEndDialog
+      open={endDialogOpen}
+      onOpenChange={setEndDialogOpen}
+      shiftId={activeShift.id}
+      onShiftEnded={() => {
+        setActiveShift(null)
+        setCart([])
+      }}
+    />
+  )
+
+  if (staleShift) {
+    const tanggal = new Intl.DateTimeFormat("id-ID", {
+      weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Jakarta",
+    }).format(new Date(activeShift.startTime))
+    return (
+      <div className="flex h-[calc(100vh-4rem)] items-center justify-center bg-muted/30 p-4">
+        <div className="w-full max-w-md rounded-xl border bg-background p-6 text-center shadow-sm space-y-4">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
+            <AlarmClock className="h-7 w-7 text-destructive" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold">Shift kemarin belum ditutup</h2>
+            <p className="text-sm text-muted-foreground">
+              Shift <span className="font-mono">{activeShift.shiftNo}</span> dibuka {tanggal}.
+              Tutup dulu dengan hitungan kas, lalu buka shift baru untuk hari ini.
+            </p>
+          </div>
+          <Button className="w-full" size="lg" variant="destructive" onClick={() => setEndDialogOpen(true)}>
+            <StopCircle className="mr-2 h-5 w-5" />
+            Tutup Shift Sekarang
+          </Button>
+        </div>
+        {endDialog}
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col overflow-hidden">
       {/* Bar info shift + tombol tutup shift */}
@@ -161,6 +226,18 @@ export default function KasirPage() {
           </Button>
         </div>
       </div>
+
+      {closeReminder && (
+        <button
+          type="button"
+          onClick={() => setEndDialogOpen(true)}
+          className="flex w-full items-center justify-center gap-2 bg-amber-100 px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200"
+        >
+          <AlarmClock className="h-4 w-4 shrink-0" />
+          Sudah pukul 21.00 WIB — jangan lupa tutup shift sebelum pulang.
+          <span className="underline">Tutup shift</span>
+        </button>
+      )}
 
       {/* Konten kasir */}
       <div className="flex flex-1 overflow-hidden">
@@ -209,15 +286,7 @@ export default function KasirPage() {
       </div>
 
       {/* Dialog Tutup Shift */}
-      <ShiftEndDialog
-        open={endDialogOpen}
-        onOpenChange={setEndDialogOpen}
-        shiftId={activeShift.id}
-        onShiftEnded={() => {
-          setActiveShift(null)
-          setCart([])
-        }}
-      />
+      {endDialog}
 
       <PrinterManagerDialog
         open={printerManagerOpen}
