@@ -94,6 +94,10 @@ export default function DashboardPage() {
 
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN"
   const isCashier = session?.user?.role === "CASHIER"
+  // Nilai sederhana, bukan objek session: objek itu berganti tiap sesi diperiksa
+  // ulang dan membuat dashboard dimuat ulang tanpa ada yang berubah
+  const loggedIn     = !!session?.user
+  const userBranchId = session?.user?.branchId
 
   // Fetch daftar cabang hanya untuk superadmin
   useEffect(() => {
@@ -113,14 +117,14 @@ export default function DashboardPage() {
   }, [isSuperAdmin])
 
   const fetchDashboard = useCallback(async () => {
-    if (!session?.user) return
+    if (!loggedIn) return
     setLoading(true)
     try {
       const params = new URLSearchParams()
       params.set("period", period)
 
-      if (isCashier && session.user.branchId) {
-        params.set("branchId", session.user.branchId)
+      if (isCashier && userBranchId) {
+        params.set("branchId", userBranchId)
       } else if (isSuperAdmin && selectedBranchId !== "all") {
         params.set("branchId", selectedBranchId)
       }
@@ -135,7 +139,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [session, period, selectedBranchId, isCashier, isSuperAdmin])
+  }, [loggedIn, userBranchId, period, selectedBranchId, isCashier, isSuperAdmin])
 
   useEffect(() => {
     fetchDashboard()

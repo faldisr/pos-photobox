@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import {
   Search,
   ChevronLeft,
@@ -424,26 +424,38 @@ export default function CustomersPage() {
   const [deleteOpen,   setDeleteOpen]   = useState(false)
   const [deleting,     setDeleting]     = useState(false)
 
+  // Pencarian dikirim ke server 400 ms setelah berhenti mengetik, bukan tiap huruf
+  const [searchQuery, setSearchQuery] = useState("")
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(search), 400)
+    return () => clearTimeout(timer)
+  }, [search])
+  // Nomor urut request: jawaban request lama yang datang terlambat diabaikan
+  const latestRequest = useRef(0)
+
   const fetchCustomers = useCallback(async () => {
+    const requestId = ++latestRequest.current
     setLoading(true)
     try {
       const params = new URLSearchParams()
       params.set("page",  String(page))
       params.set("limit", String(LIMIT))
-      if (search) params.set("search", search)
+      if (searchQuery) params.set("search", searchQuery)
 
       const res = await fetch(`/api/customers?${params.toString()}`)
+      if (requestId !== latestRequest.current) return
       if (res.ok) {
         const json = await res.json()
+        if (requestId !== latestRequest.current) return
         setCustomers(json.data)
         setMeta(json.meta)
       }
     } catch {
-      toast.error("Gagal memuat data pelanggan")
+      if (requestId === latestRequest.current) toast.error("Gagal memuat data pelanggan")
     } finally {
-      setLoading(false)
+      if (requestId === latestRequest.current) setLoading(false)
     }
-  }, [page, search])
+  }, [page, searchQuery])
 
   useEffect(() => {
     fetchCustomers()

@@ -66,6 +66,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 export function InventoryList() {
   const { data: session } = useSession()
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN"
+  // Nilai sederhana, bukan objek session (objek itu berganti tiap sesi diperiksa ulang)
+  const loggedIn = !!session?.user
 
   const [branchId, setBranchId] = useState<string | null>(null)
   const [inventories, setInventories] = useState<InventoryItem[]>([])
@@ -76,7 +78,7 @@ export function InventoryList() {
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null)
 
   useEffect(() => {
-    if (!session?.user) return
+    if (!loggedIn) return
 
     if (isSuperAdmin) {
       // SUPER_ADMIN & BRANCH_MANAGER tidak perlu branchId dari shift
@@ -96,7 +98,7 @@ export function InventoryList() {
       }
     }
     fetchBranchId()
-  }, [session, isSuperAdmin])
+  }, [loggedIn, isSuperAdmin])
 
   const fetchInventories = useCallback(async () => {
     if (branchId === null) return

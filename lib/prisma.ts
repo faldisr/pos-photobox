@@ -3,7 +3,8 @@ import { PrismaClient } from '@prisma/client'
 
 const prismaClientSingleton = () => {
   return new PrismaClient({
-    log: ['query', 'info', 'warn', 'error'],
+    // Produksi: tanpa log tiap query — memenuhi log server & memperlambat
+    log: process.env.NODE_ENV === 'production' ? ['warn', 'error'] : ['query', 'info', 'warn', 'error'],
   })
 }
 

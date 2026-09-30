@@ -421,6 +421,28 @@ export default function ReportsPage() {
       .catch(() => toast.error("Gagal memuat daftar kasir"))
   }, [])
 
+  // Pencarian dikirim ke server 400 ms setelah berhenti mengetik, bukan tiap huruf
+  const [searchQuery, setSearchQuery] = useState("")
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(search), 400)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // Filter berubah → semua tab kembali ke halaman 1. Disetel saat render (bukan di
+  // effect) supaya data langsung dimuat sekali untuk halaman 1, bukan dua kali.
+  const filterKey = [activeTab, cashierId, dateRange?.from?.getTime(), dateRange?.to?.getTime(), searchQuery].join("|")
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey)
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
+    setTrxPage(1)
+    setCustomerPage(1)
+    setShiftPage(1)
+  }
+  const currentPage =
+    activeTab === "transaction" ? trxPage :
+    activeTab === "customer"    ? customerPage :
+    activeTab === "shift"       ? shiftPage : 1
+
   // ── Build params ───────────────────────────────────────────────────────────
   const buildParams = useCallback((page: number) => {
     const params = new URLSearchParams()
@@ -428,13 +450,13 @@ export default function ReportsPage() {
     params.set("page",  String(page))
     params.set("limit", String(LIMIT))
     if (cashierId !== "ALL") params.set("cashierId", cashierId)
-    if (search && activeTab === "transaction") params.set("search", search)
+    if (searchQuery && activeTab === "transaction") params.set("search", searchQuery)
     if (dateRange?.from) {
       params.set("dateFrom", formatDateKey(dateRange.from))
       params.set("dateTo",   formatDateKey(dateRange.to || dateRange.from))
     }
     return params
-  }, [activeTab, cashierId, dateRange, search])
+  }, [activeTab, cashierId, dateRange, searchQuery])
 
   // ── Fetch data ─────────────────────────────────────────────────────────────
   // Nomor urut request: kalau filter/tab diganti cepat, jawaban request lama yang
@@ -483,36 +505,10 @@ export default function ReportsPage() {
     }
   }, [activeTab, buildParams])
 
-  // Reset page dan fetch ulang saat filter berubah
+  // Satu-satunya pemuat data: sekali saat halaman dibuka, lalu tiap tab/filter/halaman berubah
   useEffect(() => {
-    setTrxPage(1)
-    setCustomerPage(1)
-    setShiftPage(1)
-    fetchData(1)
-  }, [activeTab, cashierId, dateRange, fetchData])
-
-  // Fetch saat page berubah
-  useEffect(() => {
-    if (activeTab === "transaction") fetchData(trxPage)
-  }, [trxPage]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (activeTab === "customer") fetchData(customerPage)
-  }, [customerPage]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (activeTab === "shift") fetchData(shiftPage)
-  }, [shiftPage]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Search transaksi — debounce reset page
-  useEffect(() => {
-    if (activeTab !== "transaction") return
-    const timer = setTimeout(() => {
-      setTrxPage(1)
-      fetchData(1)
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
+    fetchData(currentPage)
+  }, [fetchData, currentPage])
 
   // ── Export (Excel & PDF) ───────────────────────────────────────────────────
   // File dibuat dari data LENGKAP sesuai filter yang diambil ulang dari server
@@ -526,7 +522,7 @@ export default function ReportsPage() {
     const period = periodInfo(dateRange?.from, dateRange?.to)
     const kasir  = cashierId === "ALL" ? "Semua kasir" : (cashiers.find((c) => c.id === cashierId)?.name ?? "-")
     // Kotak pencarian kini ikut menyaring export tab Transaksi — cantumkan di PDF
-    const cari   = activeTab === "transaction" && search.trim() ? ` · Pencarian: "${search.trim()}"` : ""
+    const cari   = activeTab === "transaction" && searchQuery.trim() ? ` · Pencarian: "${searchQuery.trim()}"` : ""
     return { label: `Periode: ${period.label} · Kasir: ${kasir}${cari}`, fileSuffix: period.fileSuffix }
   }
 
@@ -879,7 +875,7 @@ export default function ReportsPage() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSearch("") }}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSearch(""); setSearchQuery("") }}>
         <TabsList className="grid w-full max-w-xl grid-cols-5">
           <TabsTrigger value="transaction">Transaksi</TabsTrigger>
           <TabsTrigger value="revenue">Pendapatan</TabsTrigger>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
 import {
   Search,
@@ -541,6 +541,10 @@ export default function TransactionsPage() {
   const { data: session } = useSession()
   const isSuperAdmin = session?.user?.role === "SUPER_ADMIN"
   const canRefund = session?.user?.role === "SUPER_ADMIN"
+  // Nilai sederhana, bukan objek session: objek itu berganti tiap sesi diperiksa
+  // ulang dan membuat daftar dimuat ulang tanpa ada yang berubah
+  const loggedIn     = !!session?.user
+  const userBranchId = session?.user?.branchId
 
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: LIMIT, totalPages: 1 })
@@ -553,6 +557,15 @@ export default function TransactionsPage() {
   const [method,    setMethod]    = useState("ALL")
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
   const [page,      setPage]      = useState(1)
+
+  // Pencarian dikirim ke server 400 ms setelah berhenti mengetik, bukan tiap huruf
+  const [searchQuery, setSearchQuery] = useState("")
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(search), 400)
+    return () => clearTimeout(timer)
+  }, [search])
+  // Nomor urut request: jawaban request lama yang datang terlambat diabaikan
+  const latestRequest = useRef(0)
 
   const [selected,     setSelected]     = useState<Transaction | null>(null)
   const [detailOpen,   setDetailOpen]   = useState(false)
@@ -580,17 +593,18 @@ export default function TransactionsPage() {
   }, [])
 
   const fetchTransactions = useCallback(async () => {
-    if (!session?.user) return
+    if (!loggedIn) return
+    const requestId = ++latestRequest.current
     setLoading(true)
     try {
       const params = new URLSearchParams()
       params.set("page",  String(page))
       params.set("limit", String(LIMIT))
-      if (search)           params.set("search",   search)
+      if (searchQuery)      params.set("search",   searchQuery)
       if (method !== "ALL") params.set("method",   method)
 
-      if (!isSuperAdmin && session.user.branchId) {
-        params.set("branchId", session.user.branchId)
+      if (!isSuperAdmin && userBranchId) {
+        params.set("branchId", userBranchId)
       }
       if (isSuperAdmin && selectedBranch !== "ALL") {
         params.set("branchId", selectedBranch)
@@ -608,17 +622,19 @@ export default function TransactionsPage() {
       }
 
       const res = await fetch(`/api/transactions?${params.toString()}`)
+      if (requestId !== latestRequest.current) return
       if (res.ok) {
         const json = await res.json()
+        if (requestId !== latestRequest.current) return
         setTransactions(json.data)
         setMeta(json.meta)
       }
     } catch {
-      toast.error("Gagal memuat data transaksi")
+      if (requestId === latestRequest.current) toast.error("Gagal memuat data transaksi")
     } finally {
-      setLoading(false)
+      if (requestId === latestRequest.current) setLoading(false)
     }
-  }, [page, search, method, dateRange, session, isSuperAdmin, selectedBranch])
+  }, [page, searchQuery, method, dateRange, loggedIn, userBranchId, isSuperAdmin, selectedBranch])
 
   useEffect(() => {
     fetchTransactions()
