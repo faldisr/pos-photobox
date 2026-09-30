@@ -108,6 +108,10 @@ export function PaymentDialog({
   // Penjaga yang langsung berlaku: `loading` baru terbaca setelah render ulang,
   // jadi dua klik yang sangat cepat bisa sama-sama lolos kalau hanya mengandalkannya.
   const submitting = useRef(false)
+  // Kunci bayar: tetap sama selama isi pembayaran sama, sehingga "Bayar" yang
+  // dikirim ulang setelah koneksi putus tidak tercatat dua kali. Kunci baru dibuat
+  // kalau isi berubah, pembayaran sudah berhasil, atau percobaan pertama > 15 menit lalu.
+  const paymentKey = useRef<{ key: string; content: string; at: number } | null>(null)
 
   const paid = parseFloat(paidAmount) || 0
   const change = method === "CASH" ? Math.max(0, paid - total) : 0
@@ -127,6 +131,14 @@ export function PaymentDialog({
       return
     }
 
+    const content = JSON.stringify([shiftId, cart.map((i) => [i.id, i.quantity, i.price]), total, customerPhone, promoCode, notes])
+    const k = paymentKey.current
+    if (!k || k.content !== content || Date.now() - k.at > 15 * 60_000) {
+      // getRandomValues, bukan randomUUID: randomUUID tidak ada di halaman http://
+      const key = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("")
+      paymentKey.current = { key, content, at: Date.now() }
+    }
+
     submitting.current = true
     setLoading(true)
     try {
@@ -134,6 +146,7 @@ export function PaymentDialog({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          idempotencyKey: paymentKey.current!.key,
           shiftId,
           customerName: customerName || null,
           customerPhone: customerPhone || null,
@@ -163,9 +176,16 @@ export function PaymentDialog({
 
       if (res.ok) {
         const data = await res.json()
+        paymentKey.current = null
+        if (data.replayed) {
+          // Kiriman sebelumnya ternyata sudah tersimpan — tampilkan & cetak sesuai data itu
+          setMethod(data.paymentMethod)
+          setPaidAmount(String(Number(data.paidAmount)))
+          toast.info("Pembayaran ini sudah tersimpan sebelumnya — tidak dicatat dua kali.", { duration: 8000 })
+        }
         setTransactionNo(data.transactionNo)
         setTransactionId(data.id)
-        setTransactionDate(new Date())
+        setTransactionDate(new Date(data.createdAt))
         setQueueNumber(data.queueNumber ?? null)
         setSuccess(true)
       } else {
@@ -174,11 +194,8 @@ export function PaymentDialog({
       }
     } catch {
       // Koneksi putus / respons tidak terbaca: server bisa saja sudah menyimpan
-      // transaksinya. Menyuruh "coba lagi" di sini berisiko transaksi ganda.
-      toast.error(
-        "Koneksi bermasalah. Cek dulu menu Transaksi — pembayaran mungkin sudah tersimpan — sebelum mencoba lagi.",
-        { duration: 15000 }
-      )
+      // transaksinya. Kirim ulang aman — kunci bayar yang sama tidak dicatat dua kali.
+      toast.error("Koneksi terputus. Tekan Bayar lagi — aman, tidak akan tercatat dua kali.", { duration: 15000 })
     } finally {
       submitting.current = false
       setLoading(false)

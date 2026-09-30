@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
+import type { Prisma } from "@prisma/client"
 import { prisma, retryOnUniqueConflict } from "@/lib/prisma"
 import { generateTransactionNo, parsePagination } from "@/lib/utils"
 import { requireRole } from "@/lib/auth"
 import { startOfWibDay, wibDateRange } from "@/lib/wib"
 
 export const dynamic = "force-dynamic"
+
+// Transaksi yang sudah tersimpan dengan kunci bayar ini — hanya milik kasir yang sama
+async function findByPaymentKey(db: Prisma.TransactionClient, key: string | null, cashierId: string | undefined) {
+  if (!key) return null
+  const trx = await db.transaction.findUnique({ where: { idempotencyKey: key } })
+  return trx && trx.cashierId === cashierId ? trx : null
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -98,6 +106,10 @@ export async function POST(request: NextRequest) {
       paperId,
       printQty,
     } = body
+    // Kunci unik per percobaan bayar dari kasir. Halaman kasir versi lama tidak mengirimnya.
+    const paymentKey = typeof body.idempotencyKey === "string" && body.idempotencyKey.length > 0 && body.idempotencyKey.length <= 100
+      ? body.idempotencyKey as string
+      : null
 
     if (!items || items.length === 0) {
       return NextResponse.json({ error: "Tidak ada item transaksi" }, { status: 400 })
@@ -106,6 +118,11 @@ export async function POST(request: NextRequest) {
     if (!paymentMethod) {
       return NextResponse.json({ error: "Metode pembayaran harus dipilih" }, { status: 400 })
     }
+
+    // Bayar dikirim ulang (koneksi putus lalu kasir menekan Bayar lagi) dan yang
+    // pertama ternyata sudah tersimpan: kembalikan transaksi itu, jangan catat dua kali
+    const saved = await findByPaymentKey(prisma, paymentKey, guard.session.user?.id)
+    if (saved) return NextResponse.json({ ...saved, replayed: true })
 
     const shift = typeof shiftId === "string" ? await prisma.shift.findUnique({
       where: { id: shiftId },
@@ -184,6 +201,11 @@ export async function POST(request: NextRequest) {
       // saling menimpa potongan stok kertas.
       await tx.$queryRaw`SELECT id FROM branches WHERE id = ${shift.branchId} FOR UPDATE`
 
+      // Dua kiriman dengan kunci bayar sama yang datang bersamaan: yang kedua
+      // menunggu kunci cabang di atas, lalu mendapati yang pertama sudah tersimpan
+      const sameKey = await findByPaymentKey(tx, paymentKey, shift.cashierId)
+      if (sameKey) return { trx: sameKey, replayed: true }
+
       // Cek ulang di dalam kunci: shift bisa saja baru ditutup sejak pengecekan di atas
       const stillOpen = await tx.shift.count({ where: { id: shiftId, endTime: null } })
       if (!stillOpen) return null
@@ -234,6 +256,7 @@ export async function POST(request: NextRequest) {
           promoCode: promoCode || null,
           promoDiscount: promoDiscount ?? 0,
           notes: notes || null,
+          idempotencyKey: paymentKey,
           items: {
             create: items.map((item: {
               packageId?: string
@@ -306,15 +329,16 @@ export async function POST(request: NextRequest) {
         },
       })
 
-      return trx
+      return { trx, replayed: false }
     }, { timeout: 10000 })
 
-    const transaction = await retryOnUniqueConflict(saveTransaction, "transactionNo")
-    if (!transaction) {
+    const result = await retryOnUniqueConflict(saveTransaction, "transactionNo")
+    if (!result) {
       return NextResponse.json({ error: "Shift sudah ditutup. Muat ulang halaman lalu buka shift baru." }, { status: 400 })
     }
+    if (result.replayed) return NextResponse.json({ ...result.trx, replayed: true })
 
-    return NextResponse.json(transaction, { status: 201 })
+    return NextResponse.json(result.trx, { status: 201 })
   } catch (error) {
     console.error("Error creating transaction:", error)
     return NextResponse.json({ error: "Failed to create transaction" }, { status: 500 })
