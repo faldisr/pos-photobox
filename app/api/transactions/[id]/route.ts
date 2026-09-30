@@ -21,18 +21,25 @@ export async function PATCH(
     if (body.isPrinted === true) {
       const transaction = await prisma.transaction.findUnique({
         where: { id },
+        select: { branchId: true },
       })
 
       if (!transaction) {
         return NextResponse.json({ error: "Transaksi tidak ditemukan" }, { status: 404 })
       }
 
-      const updated = await prisma.transaction.update({
+      // Kasir hanya boleh menandai transaksi cabangnya sendiri
+      if (session.user.role !== "SUPER_ADMIN" && transaction.branchId !== session.user.branchId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+
+      await prisma.transaction.update({
         where: { id },
         data: { isPrinted: true },
       })
 
-      return NextResponse.json(updated)
+      // Balasan tanpa isi transaksi — pemanggil hanya butuh tanda berhasil
+      return NextResponse.json({ id, isPrinted: true })
     }
 
     // ── Handler: refund ───────────────────────────────────────────────────
