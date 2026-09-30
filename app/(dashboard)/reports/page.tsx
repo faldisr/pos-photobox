@@ -228,6 +228,13 @@ function formatDateKey(date: Date) {
 
 const fmtCount = (n: number) => n.toLocaleString("id-ID")
 
+// Rentang bawaan Laporan: tanggal 1 bulan ini s/d hari ini. "Semua tanggal" tetap bisa
+// dipilih, tapi bukan bawaan — dengan ratusan ribu transaksi, tab Produk & pencarian lambat.
+function thisMonth(): DateRange {
+  const now = new Date()
+  return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth(), now.getDate()) }
+}
+
 // Label & akhiran nama file periode — rentang satu hari cukup ditulis sekali
 function periodInfo(from?: Date, to?: Date) {
   if (!from) return { label: "Semua tanggal", fileSuffix: "semua" }
@@ -391,6 +398,14 @@ function PaginationBar({
 export default function ReportsPage() {
   const [activeTab,  setActiveTab]  = useState("transaction")
   const [dateRange,  setDateRange]  = useState<DateRange | undefined>(undefined)
+  // Bulan ini diisi setelah halaman berjalan di browser, bukan sebagai nilai awal:
+  // halaman ini dirender saat build, dan tanggal build ≠ tanggal hari ini.
+  // Data baru dimuat setelah ini, supaya request pertama langsung memakai bulan ini.
+  const [defaultApplied, setDefaultApplied] = useState(false)
+  useEffect(() => {
+    setDateRange(thisMonth())
+    setDefaultApplied(true)
+  }, [])
   const [cashierId,  setCashierId]  = useState("ALL")
   const [cashiers,   setCashiers]   = useState<Cashier[]>([])
   const [search,     setSearch]     = useState("")
@@ -507,8 +522,8 @@ export default function ReportsPage() {
 
   // Satu-satunya pemuat data: sekali saat halaman dibuka, lalu tiap tab/filter/halaman berubah
   useEffect(() => {
-    fetchData(currentPage)
-  }, [fetchData, currentPage])
+    if (defaultApplied) fetchData(currentPage)
+  }, [fetchData, currentPage, defaultApplied])
 
   // ── Export (Excel & PDF) ───────────────────────────────────────────────────
   // File dibuat dari data LENGKAP sesuai filter yang diambil ulang dari server
@@ -781,6 +796,10 @@ export default function ReportsPage() {
   }
 
   // ── Filter area (shared) ───────────────────────────────────────────────────
+  // Tombol "Reset" (kembali ke bulan ini + semua kasir) hanya tampil kalau filter sudah diubah
+  const month = thisMonth()
+  const isThisMonth = !!dateRange?.from && !!dateRange.to &&
+    formatDateKey(dateRange.from) === formatDateKey(month.from!) && formatDateKey(dateRange.to) === formatDateKey(month.to!)
   const FilterArea = (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
       <Popover>
@@ -797,12 +816,13 @@ export default function ReportsPage() {
                 dateRange.from.toLocaleDateString("id-ID")
               )
             ) : (
-              "Pilih Tanggal"
+              defaultApplied ? "Semua tanggal" : "Pilih Tanggal"
             )}
             <ChevronDownIcon className="ml-auto h-4 w-4 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
+        {/* Bisa digulir: di layar pendek tombol "Semua Tanggal" di bawah kalender jangan sampai terpotong */}
+        <PopoverContent className="w-auto p-0 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto" align="start">
           <Calendar
             mode="range"
             selected={dateRange}
@@ -817,7 +837,7 @@ export default function ReportsPage() {
               onClick={() => { setDateRange(undefined) }}
               className="w-full"
             >
-              Reset Filter
+              Semua Tanggal
             </Button>
           </div>
         </PopoverContent>
@@ -835,12 +855,12 @@ export default function ReportsPage() {
         </SelectContent>
       </Select>
 
-      {(dateRange || cashierId !== "ALL") && (
+      {defaultApplied && (!isThisMonth || cashierId !== "ALL") && (
         <Button
           variant="ghost"
           size="sm"
           className="h-9 text-xs text-muted-foreground w-fit"
-          onClick={() => { setDateRange(undefined); setCashierId("ALL") }}
+          onClick={() => { setDateRange(thisMonth()); setCashierId("ALL") }}
         >
           <X className="mr-1 h-3 w-3" />
           Reset
