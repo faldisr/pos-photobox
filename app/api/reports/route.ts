@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { requireRole } from "@/lib/auth"
 import { parsePagination } from "@/lib/utils"
-import { wibDateKey, wibDateRange } from "@/lib/wib"
+import { wibDateRange } from "@/lib/wib"
 
 // Batas baris per sekali export (all=1) — melindungi memori server kalau
 // "Semua" dipilih tanpa filter tanggal setelah data menumpuk bertahun-tahun.
@@ -123,35 +124,34 @@ export async function GET(request: NextRequest) {
 
     // ─── Laporan Pendapatan ────────────────────────────────────────────────
     if (type === "revenue") {
-      const transactions = await prisma.transaction.findMany({
-        where,
-        select: {
-          total:         true,
-          createdAt:     true,
-          paymentMethod: true,
-        },
-        orderBy: { createdAt: "asc" },
-      })
+      // Dijumlahkan di database per hari WIB (createdAt disimpan UTC → +7 jam),
+      // bukan mengambil semua transaksi ke server lalu dijumlahkan satu per satu
+      const conds = [Prisma.sql`status = 'COMPLETED'`]
+      if (range?.gte) conds.push(Prisma.sql`createdAt >= ${range.gte}`)
+      if (range?.lt)  conds.push(Prisma.sql`createdAt < ${range.lt}`)
+      if (cashierId)  conds.push(Prisma.sql`cashierId = ${cashierId}`)
+      if (branchId)   conds.push(Prisma.sql`branchId = ${branchId}`)
 
-      const revenueMap: Record<string, { date: string; total: number; count: number }> = {}
-      for (const trx of transactions) {
-        const date = wibDateKey(trx.createdAt)
-        if (!revenueMap[date]) revenueMap[date] = { date, total: 0, count: 0 }
-        revenueMap[date].total += Number(trx.total)
-        revenueMap[date].count += 1
-      }
+      const [days, methods] = await Promise.all([
+        prisma.$queryRaw<{ hari: string; total: Prisma.Decimal; n: bigint }[]>`
+          SELECT DATE_FORMAT(createdAt + INTERVAL 7 HOUR, '%Y-%m-%d') AS hari, SUM(total) AS total, COUNT(*) AS n
+          FROM transactions WHERE ${Prisma.join(conds, " AND ")}
+          GROUP BY hari ORDER BY hari`,
+        prisma.transaction.groupBy({
+          by: ["paymentMethod"],
+          where,
+          _sum: { total: true },
+          _min: { createdAt: true },
+          orderBy: { _min: { createdAt: "asc" } }, // urutan metode = urutan pertama kali dipakai
+        }),
+      ])
 
-      const paymentSummary: Record<string, number> = {}
-      for (const trx of transactions) {
-        const m = trx.paymentMethod
-        paymentSummary[m] = (paymentSummary[m] ?? 0) + Number(trx.total)
-      }
-
+      const chartData = days.map((d) => ({ date: d.hari, total: Number(d.total), count: Number(d.n) }))
       return NextResponse.json({
-        chartData:    Object.values(revenueMap),
-        paymentSummary,
-        totalRevenue: transactions.reduce((s, t) => s + Number(t.total), 0),
-        totalTrx:     transactions.length,
+        chartData,
+        paymentSummary: Object.fromEntries(methods.map((m) => [m.paymentMethod, Number(m._sum.total ?? 0)])),
+        totalRevenue:   chartData.reduce((s, d) => s + d.total, 0),
+        totalTrx:       chartData.reduce((s, d) => s + d.count, 0),
       })
     }
 
@@ -196,14 +196,12 @@ export async function GET(request: NextRequest) {
 
     // ─── Laporan Produk Terlaris ───────────────────────────────────────────
     if (type === "product") {
-      const items = await prisma.transactionItem.findMany({
+      // Dijumlahkan di database per nama + tipe; beberapa baris per produk saja
+      const groups = await prisma.transactionItem.groupBy({
+        by: ["itemName", "itemType"],
         where: { transaction: where },
-        select: {
-          itemName: true,
-          itemType: true,
-          quantity: true,
-          subtotal: true,
-        },
+        _sum: { quantity: true, subtotal: true },
+        orderBy: [{ itemName: "asc" }, { itemType: "asc" }],
       })
 
       const productMap: Record<string, {
@@ -213,17 +211,21 @@ export async function GET(request: NextRequest) {
         totalRevenue: number
       }> = {}
 
-      for (const item of items) {
-        if (!productMap[item.itemName]) {
-          productMap[item.itemName] = {
-            itemName:     item.itemName,
-            itemType:     item.itemType,
-            totalQty:     0,
-            totalRevenue: 0,
+      for (const g of groups) {
+        const p = productMap[g.itemName]
+        if (!p) {
+          productMap[g.itemName] = {
+            itemName:     g.itemName,
+            itemType:     g.itemType,
+            totalQty:     g._sum.quantity ?? 0,
+            totalRevenue: Number(g._sum.subtotal ?? 0),
           }
+          continue
         }
-        productMap[item.itemName].totalQty     += item.quantity
-        productMap[item.itemName].totalRevenue += Number(item.subtotal)
+        // Nama sama dengan tipe berbeda (mis. KOSTUM sebagai paket & add-on): satu baris, kedua tipe ditulis
+        p.itemType     += ` / ${g.itemType}`
+        p.totalQty     += g._sum.quantity ?? 0
+        p.totalRevenue += Number(g._sum.subtotal ?? 0)
       }
 
       const sorted = Object.values(productMap).sort((a, b) => b.totalQty - a.totalQty)

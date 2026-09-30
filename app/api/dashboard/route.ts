@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
@@ -71,7 +72,8 @@ export async function GET(request: NextRequest) {
           ...(branchId ? { transactions: { some: { branchId } } } : {}),
         },
       }),
-      prisma.transaction.findMany({
+      // "all" tidak butuh transaksi satu per satu — dijumlahkan per bulan di database (di bawah)
+      period === "all" ? [] : prisma.transaction.findMany({
         where: baseWhere,
         select: { createdAt: true, total: true },
         orderBy: { createdAt: "asc" },
@@ -117,15 +119,14 @@ export async function GET(request: NextRequest) {
       }
       salesChart = Object.entries(dayMap).map(([date, total]) => ({ date, total }))
     } else {
-      // all: per bulan
-      const monthMap: Record<string, number> = {}
-      for (const t of chartTransactions) {
-        const key = wibDateKey(t.createdAt).slice(0, 7)
-        monthMap[key] = (monthMap[key] ?? 0) + Number(t.total)
-      }
-      salesChart = Object.entries(monthMap)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, total]) => ({ date, total }))
+      // all: per bulan WIB (createdAt disimpan UTC → +7 jam), dijumlahkan di database —
+      // data "semua" terus bertambah, jangan diambil satu per satu
+      const months = await prisma.$queryRaw<{ bulan: string; total: Prisma.Decimal }[]>`
+        SELECT DATE_FORMAT(createdAt + INTERVAL 7 HOUR, '%Y-%m') AS bulan, SUM(total) AS total
+        FROM transactions
+        WHERE status = 'COMPLETED' ${branchId ? Prisma.sql`AND branchId = ${branchId}` : Prisma.empty}
+        GROUP BY bulan ORDER BY bulan`
+      salesChart = months.map((m) => ({ date: m.bulan, total: Number(m.total) }))
     }
 
     return NextResponse.json({
