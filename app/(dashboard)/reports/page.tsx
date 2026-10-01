@@ -54,7 +54,7 @@ import * as XLSX from "xlsx"
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-type Cashier = { id: string; name: string }
+type Branch = { id: string; name: string; isActive: boolean }
 
 type TransactionItem = {
   id: string
@@ -390,8 +390,8 @@ export default function ReportsPage() {
     setDateRange(thisMonth())
     setDefaultApplied(true)
   }, [])
-  const [cashierId,  setCashierId]  = useState("ALL")
-  const [cashiers,   setCashiers]   = useState<Cashier[]>([])
+  const [branchId,   setBranchId]   = useState("ALL")
+  const [branches,   setBranches]   = useState<Branch[]>([])
   const [search,     setSearch]     = useState("")
   const [loading,    setLoading]    = useState(false)
   const [exporting,  setExporting]  = useState<"excel" | "pdf" | null>(null)
@@ -412,12 +412,12 @@ export default function ReportsPage() {
   const [customers,    setCustomers]    = useState<CustomerRow[]>([])
   const [products,     setProducts]     = useState<ProductRow[]>([])
 
-  // ── Fetch cashiers untuk dropdown ─────────────────────────────────────────
+  // ── Fetch cabang untuk dropdown (termasuk yang nonaktif: laporan lamanya tetap bisa dilihat) ──
   useEffect(() => {
-    fetch("/api/reports/cashiers")
+    fetch("/api/settings/branches")
       .then((r) => r.json())
-      .then((data) => setCashiers(data))
-      .catch(() => toast.error("Gagal memuat daftar kasir"))
+      .then((data) => setBranches(Array.isArray(data) ? data : []))
+      .catch(() => toast.error("Gagal memuat daftar cabang"))
   }, [])
 
   // Pencarian dikirim ke server 400 ms setelah berhenti mengetik, bukan tiap huruf
@@ -429,7 +429,7 @@ export default function ReportsPage() {
 
   // Filter berubah → semua tab kembali ke halaman 1. Disetel saat render (bukan di
   // effect) supaya data langsung dimuat sekali untuk halaman 1, bukan dua kali.
-  const filterKey = [activeTab, cashierId, dateRange?.from?.getTime(), dateRange?.to?.getTime(), searchQuery].join("|")
+  const filterKey = [activeTab, branchId, dateRange?.from?.getTime(), dateRange?.to?.getTime(), searchQuery].join("|")
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey)
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey)
@@ -448,14 +448,14 @@ export default function ReportsPage() {
     params.set("type",  activeTab)
     params.set("page",  String(page))
     params.set("limit", String(LIMIT))
-    if (cashierId !== "ALL") params.set("cashierId", cashierId)
+    if (branchId !== "ALL") params.set("branchId", branchId)
     if (searchQuery && activeTab === "transaction") params.set("search", searchQuery)
     if (dateRange?.from) {
       params.set("dateFrom", formatDateKey(dateRange.from))
       params.set("dateTo",   formatDateKey(dateRange.to || dateRange.from))
     }
     return params
-  }, [activeTab, cashierId, dateRange, searchQuery])
+  }, [activeTab, branchId, dateRange, searchQuery])
 
   // ── Fetch data ─────────────────────────────────────────────────────────────
   // Nomor urut request: kalau filter/tab diganti cepat, jawaban request lama yang
@@ -516,13 +516,13 @@ export default function ReportsPage() {
   // Keterangan periode untuk header PDF & nama file
   const exportInfo = () => {
     if (activeTab === "customer") {
-      return { label: "Semua pelanggan (filter tanggal & kasir tidak berlaku untuk laporan ini)", fileSuffix: "semua" }
+      return { label: "Semua pelanggan (filter tanggal & cabang tidak berlaku untuk laporan ini)", fileSuffix: "semua" }
     }
     const period = periodInfo(dateRange?.from, dateRange?.to)
-    const kasir  = cashierId === "ALL" ? "Semua kasir" : (cashiers.find((c) => c.id === cashierId)?.name ?? "-")
+    const cabang = branchId === "ALL" ? "Semua cabang" : (branches.find((b) => b.id === branchId)?.name ?? "-")
     // Kotak pencarian kini ikut menyaring export tab Transaksi — cantumkan di PDF
     const cari   = activeTab === "transaction" && searchQuery.trim() ? ` · Pencarian: "${searchQuery.trim()}"` : ""
-    return { label: `Periode: ${period.label} · Kasir: ${kasir}${cari}`, fileSuffix: period.fileSuffix }
+    return { label: `Periode: ${period.label} · Cabang: ${cabang}${cari}`, fileSuffix: period.fileSuffix }
   }
 
   const handleExport = async (format: "excel" | "pdf") => {
@@ -779,7 +779,7 @@ export default function ReportsPage() {
   }
 
   // ── Filter area (shared) ───────────────────────────────────────────────────
-  // Tombol "Reset" (kembali ke bulan ini + semua kasir) hanya tampil kalau filter sudah diubah
+  // Tombol "Reset" (kembali ke bulan ini + semua cabang) hanya tampil kalau filter sudah diubah
   const month = thisMonth()
   const isThisMonth = !!dateRange?.from && !!dateRange.to &&
     formatDateKey(dateRange.from) === formatDateKey(month.from!) && formatDateKey(dateRange.to) === formatDateKey(month.to!)
@@ -826,24 +826,24 @@ export default function ReportsPage() {
         </PopoverContent>
       </Popover>
 
-      <Select value={cashierId} onValueChange={(v) => { setCashierId(v) }}>
-        <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="Semua Kasir" />
+      <Select value={branchId} onValueChange={(v) => { setBranchId(v) }}>
+        <SelectTrigger className="w-[230px]">
+          <SelectValue placeholder="Semua Cabang" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="ALL">Semua Kasir</SelectItem>
-          {cashiers.map((c) => (
-            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+          <SelectItem value="ALL">Semua Cabang</SelectItem>
+          {branches.map((b) => (
+            <SelectItem key={b.id} value={b.id}>{b.name}{b.isActive ? "" : " (nonaktif)"}</SelectItem>
           ))}
         </SelectContent>
       </Select>
 
-      {defaultApplied && (!isThisMonth || cashierId !== "ALL") && (
+      {defaultApplied && (!isThisMonth || branchId !== "ALL") && (
         <Button
           variant="ghost"
           size="sm"
           className="h-9 text-xs text-muted-foreground w-fit"
-          onClick={() => { setDateRange(thisMonth()); setCashierId("ALL") }}
+          onClick={() => { setDateRange(thisMonth()); setBranchId("ALL") }}
         >
           <X className="mr-1 h-3 w-3" />
           Reset
