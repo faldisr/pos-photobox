@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { computeShiftTotals } from "@/lib/shift"
-import { rupiahError, SELISIH_WAJIB_ALASAN } from "@/lib/utils"
+import { rupiahError } from "@/lib/utils"
 
 export async function GET(
   request: NextRequest,
@@ -52,18 +52,12 @@ export async function PATCH(
     const body = await request.json()
     const notes = typeof body.notes === "string" ? body.notes.trim() : ""
 
-    // Form baru mengirim rincian (uang disetor + modal/receh di laci). Halaman kasir
-    // yang masih terbuka dari versi lama hanya mengirim closingBalance.
-    const hasBreakdown = body.cashDeposit !== undefined || body.cashRemaining !== undefined
-    const invalid = hasBreakdown
-      ? rupiahError(body.cashDeposit, "Uang disetor") ?? rupiahError(body.cashRemaining, "Modal/receh di laci")
-      : rupiahError(body.closingBalance, "Saldo penutup")
+    // Satu angka: uang yang disetor kasir (disimpan di closingBalance seperti versi lama)
+    const invalid = rupiahError(body.closingBalance, "Uang disetor")
     if (invalid) {
       return NextResponse.json({ error: invalid }, { status: 400 })
     }
-    const cashDeposit   = hasBreakdown ? Number(body.cashDeposit) : null
-    const cashRemaining = hasBreakdown ? Number(body.cashRemaining) : null
-    const closingBalance = hasBreakdown ? cashDeposit! + cashRemaining! : Number(body.closingBalance)
+    const closingBalance = Number(body.closingBalance)
 
     const shift = await prisma.shift.findUnique({
       where: { id },
@@ -87,11 +81,8 @@ export async function PATCH(
       await tx.$queryRaw`SELECT id FROM branches WHERE id = ${shift.branchId} FOR UPDATE`
 
       const totals = await computeShiftTotals(tx, id)
+      // Kas seharusnya & selisih tetap dicatat seperti versi lama, tapi tidak ditampilkan
       const expectedBalance = Number(shift.openingBalance) + totals.cashSales
-      const difference = closingBalance - expectedBalance
-      if (Math.abs(difference) >= SELISIH_WAJIB_ALASAN && !notes) {
-        return { error: `Selisih kas Rp${Math.abs(difference).toLocaleString("id-ID")} — isi alasan selisih di catatan` }
-      }
 
       // Bersyarat endTime null: dua permintaan tutup bersamaan hanya satu yang lolos
       const { count } = await tx.shift.updateMany({
@@ -100,18 +91,16 @@ export async function PATCH(
           ...totals,
           endTime: new Date(),
           closingBalance,
-          cashDeposit,
-          cashRemaining,
           expectedBalance,
-          difference,
+          difference: closingBalance - expectedBalance,
           notes: notes || null,
         },
       })
-      return count === 0 ? { error: "Shift sudah ditutup" } : { error: null }
+      return count
     })
 
-    if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
+    if (result === 0) {
+      return NextResponse.json({ error: "Shift sudah ditutup" }, { status: 400 })
     }
 
     const updated = await prisma.shift.findUnique({

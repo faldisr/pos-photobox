@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { RupiahInput } from "@/components/kasir/rupiah-input"
-import { rupiahError, SELISIH_WAJIB_ALASAN } from "@/lib/utils"
+import { rupiahError } from "@/lib/utils"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -62,19 +62,11 @@ export function ShiftEndDialog({
 }: ShiftEndDialogProps) {
   const [shiftDetail, setShiftDetail] = useState<ShiftDetail | null>(null)
   const [loadingDetail, setLoadingDetail] = useState(false)
-  const [cashDeposit, setCashDeposit] = useState("")
-  const [cashRemaining, setCashRemaining] = useState("")
+  const [closingBalance, setClosingBalance] = useState("")
   const [notes, setNotes] = useState("")
   const [loading, setLoading] = useState(false)
   // Penjaga klik ganda yang langsung berlaku (state loading baru terbaca setelah render ulang)
   const submitting = useRef(false)
-
-  // Hitungan kas: uang disetor + modal/receh yang ditinggal di laci
-  const filled = cashDeposit !== "" && cashRemaining !== ""
-  const counted = Number(cashDeposit || 0) + Number(cashRemaining || 0)
-  const expected = shiftDetail ? Number(shiftDetail.openingBalance) + Number(shiftDetail.cashSales) : 0
-  const difference = counted - expected
-  const needsReason = filled && Math.abs(difference) >= SELISIH_WAJIB_ALASAN
 
   useEffect(() => {
     if (!open) return
@@ -100,8 +92,7 @@ export function ShiftEndDialog({
   }, [open, shiftId])
 
   const reset = () => {
-    setCashDeposit("")
-    setCashRemaining("")
+    setClosingBalance("")
     setNotes("")
     setShiftDetail(null)
     onOpenChange(false)
@@ -114,15 +105,11 @@ export function ShiftEndDialog({
 
   const handleEndShift = async () => {
     if (submitting.current) return
-    const invalid =
-      (cashDeposit === "" ? "Isi uang disetor (tulis 0 kalau tidak ada)" : rupiahError(Number(cashDeposit), "Uang disetor")) ??
-      (cashRemaining === "" ? "Isi modal/receh di laci (tulis 0 kalau tidak ada)" : rupiahError(Number(cashRemaining), "Modal/receh di laci"))
+    const invalid = closingBalance === ""
+      ? "Isi uang disetor (tulis 0 kalau tidak ada)"
+      : rupiahError(Number(closingBalance), "Uang disetor")
     if (invalid) {
       toast.error(invalid)
-      return
-    }
-    if (needsReason && !notes.trim()) {
-      toast.error("Selisih kas cukup besar — isi alasan selisih di catatan")
       return
     }
 
@@ -133,8 +120,7 @@ export function ShiftEndDialog({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cashDeposit: Number(cashDeposit),
-          cashRemaining: Number(cashRemaining),
+          closingBalance: Number(closingBalance),
           notes: notes.trim() || null,
         }),
       })
@@ -157,7 +143,7 @@ export function ShiftEndDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      {/* Bisa digulir: di layar laptop isi dialog lebih tinggi dari layar, tombol Tutup Shift jangan sampai terpotong */}
+      {/* Bisa digulir: di layar pendek tombol Tutup Shift jangan sampai terpotong */}
       <DialogContent className="w-[95vw] max-w-md max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Tutup Shift</DialogTitle>
@@ -222,43 +208,18 @@ export function ShiftEndDialog({
               </div>
             </div>
 
-            {/* Hitungan kas: setor + modal/receh */}
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="cashDeposit">Uang Disetor</Label>
-                <RupiahInput id="cashDeposit" label="Uang disetor" value={cashDeposit} onChange={setCashDeposit} placeholder="Contoh: 450.000" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="cashRemaining">Modal/Receh Ditinggal di Laci</Label>
-                <RupiahInput id="cashRemaining" label="Modal/receh di laci" value={cashRemaining} onChange={setCashRemaining} placeholder="Contoh: 30.000" />
-              </div>
-              {filled && (
-                <div className="rounded-lg bg-muted/50 p-3 space-y-1.5 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total uang dihitung</span>
-                    <span className="font-medium">{formatCurrency(counted)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Kas seharusnya (saldo awal + tunai)</span>
-                    <span>{formatCurrency(expected)}</span>
-                  </div>
-                  <Separator />
-                  <div className={`flex justify-between font-medium ${difference === 0 ? "text-green-700" : "text-destructive"}`}>
-                    <span>Selisih</span>
-                    <span>{difference > 0 ? "+" : ""}{formatCurrency(difference)}</span>
-                  </div>
-                </div>
-              )}
+            {/* Uang disetor */}
+            <div className="space-y-2">
+              <Label htmlFor="closingBalance">Uang Disetor</Label>
+              <RupiahInput id="closingBalance" label="Uang disetor" value={closingBalance} onChange={setClosingBalance} />
             </div>
 
-            {/* Catatan — wajib kalau selisih besar */}
+            {/* Catatan */}
             <div className="space-y-2">
-              <Label htmlFor="notes" className={needsReason ? "text-destructive" : undefined}>
-                {needsReason ? "Alasan selisih (wajib)" : "Catatan (opsional)"}
-              </Label>
+              <Label htmlFor="notes">Catatan (opsional)</Label>
               <Textarea
                 id="notes"
-                placeholder={needsReason ? "Jelaskan kenapa uang di laci berbeda..." : "Catatan penutupan shift..."}
+                placeholder="Catatan penutupan shift..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="resize-none"

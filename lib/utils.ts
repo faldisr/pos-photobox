@@ -68,9 +68,6 @@ export function generateTransactionNo(): string {
   return `TRX-${year}${month}${day}-${random}`
 }
 
-/** Selisih kas (Rp) yang mewajibkan kasir mengisi alasan saat tutup shift */
-export const SELISIH_WAJIB_ALASAN = 10_000
-
 /**
  * Validasi nominal kas yang diketik kasir. Kasir terbiasa menyingkat ribuan
  * ("300" untuk Rp300.000), jadi 1–999 ditolak — nominal harus ditulis lengkap.

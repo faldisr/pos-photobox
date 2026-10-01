@@ -239,12 +239,11 @@ export async function GET(request: NextRequest) {
       if (cashierId) whereShift.cashierId = cashierId
       if (branchId)  whereShift.branchId  = branchId
 
+      // Hanya kolom yang ditampilkan; kas seharusnya & selisih sengaja tidak dikirim
       const shiftSelect = {
         id: true, shiftNo: true, startTime: true, endTime: true,
-        openingBalance: true, totalTransactions: true, totalSales: true,
-        cashSales: true, cardSales: true, qrisSales: true, otherSales: true,
-        expectedBalance: true, cashDeposit: true, cashRemaining: true,
-        closingBalance: true, difference: true, notes: true,
+        openingBalance: true, totalTransactions: true, totalSales: true, cashSales: true,
+        closingBalance: true, notes: true,
         cashier: { select: { name: true } },
         branch:  { select: { name: true } },
       }

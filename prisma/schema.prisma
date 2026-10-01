@@ -337,9 +337,6 @@ model Shift {
   // Cash Management
   openingBalance  Decimal   @db.Decimal(10, 2)
   closingBalance  Decimal?  @db.Decimal(10, 2)
-  // Rincian hitungan kas saat tutup shift; closingBalance = cashDeposit + cashRemaining
-  cashDeposit     Decimal?  @db.Decimal(10, 2)
-  cashRemaining   Decimal?  @db.Decimal(10, 2)
   expectedBalance Decimal?  @db.Decimal(10, 2)
   difference      Decimal?  @db.Decimal(10, 2)
   

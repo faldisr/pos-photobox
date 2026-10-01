@@ -120,11 +120,7 @@ type ShiftRow = {
   totalTransactions: number
   totalSales: Money
   cashSales: Money
-  expectedBalance: Money | null
-  cashDeposit: Money | null
-  cashRemaining: Money | null
-  closingBalance: Money | null
-  difference: Money | null
+  closingBalance: Money | null // uang disetor kasir saat tutup shift
   notes: string | null
   cashier: { name: string }
   branch: { name: string }
@@ -277,12 +273,6 @@ function productTotals(rows: ProductRow[]) {
   }
 }
 
-// Kas seharusnya: tersimpan saat shift ditutup; untuk shift yang masih terbuka
-// dihitung sementara dari saldo awal + penjualan tunai sejauh ini
-const shiftExpected = (s: ShiftRow) =>
-  s.expectedBalance !== null ? Number(s.expectedBalance) : Number(s.openingBalance) + Number(s.cashSales)
-const optMoney = (v: Money | null) => (v === null ? null : Number(v))
-
 // Satu baris laporan shift — dipakai tabel layar, Excel (angka), dan PDF (teks)
 function shiftCells(s: ShiftRow) {
   return {
@@ -294,20 +284,17 @@ function shiftCells(s: ShiftRow) {
     trx:       s.totalTransactions,
     penjualan: Number(s.totalSales),
     tunai:     Number(s.cashSales),
-    seharusnya: shiftExpected(s),
-    disetor:   optMoney(s.cashDeposit),
-    sisa:      optMoney(s.cashRemaining),
-    dihitung:  optMoney(s.closingBalance),
-    selisih:   optMoney(s.difference),
+    saldoAwal: Number(s.openingBalance),
+    disetor:   s.closingBalance === null ? null : Number(s.closingBalance), // null = shift masih terbuka
     catatan:   s.notes ?? "",
   }
 }
 
 const SHIFT_HEADERS = ["No. Shift", "Kasir", "Cabang", "Buka", "Tutup", "Trx", "Penjualan", "Tunai",
-  "Kas Seharusnya", "Disetor", "Sisa di Laci", "Total Dihitung", "Selisih", "Catatan"]
+  "Saldo Awal", "Uang Disetor", "Catatan"]
 
 function shiftTotals(rows: ShiftRow[]) {
-  // Dibulatkan ke sen: penjumlahan desimal (mis. selisih ,78) di JS bisa jadi -8522889.780000001
+  // Dibulatkan ke sen: penjumlahan desimal (mis. ,78) di JS bisa jadi 8522889.780000001
   const sum = (f: (c: ReturnType<typeof shiftCells>) => number | null) =>
     Math.round(rows.reduce((acc, s) => acc + (f(shiftCells(s)) ?? 0), 0) * 100) / 100
   return {
@@ -315,9 +302,6 @@ function shiftTotals(rows: ShiftRow[]) {
     penjualan: sum((c) => c.penjualan),
     tunai:     sum((c) => c.tunai),
     disetor:   sum((c) => c.disetor),
-    sisa:      sum((c) => c.sisa),
-    dihitung:  sum((c) => c.dihitung),
-    selisih:   sum((c) => c.selisih),
   }
 }
 
@@ -677,13 +661,12 @@ export default function ReportsPage() {
         body:    rows.map((s) => {
           const c = shiftCells(s)
           return [c.shiftNo, c.kasir, c.cabang, c.buka, c.tutup, String(c.trx), rp(c.penjualan), rp(c.tunai),
-            rp(c.seharusnya), rp(c.disetor), rp(c.sisa), rp(c.dihitung), rp(c.selisih), c.catatan || "-"]
+            rp(c.saldoAwal), rp(c.disetor), c.catatan || "-"]
         }),
         foot: [[
           { content: `TOTAL: ${fmtCount(rows.length)} shift`, colSpan: 5 },
           fmtCount(totals.trx), formatCurrency(totals.penjualan), formatCurrency(totals.tunai), "",
-          formatCurrency(totals.disetor), formatCurrency(totals.sisa), formatCurrency(totals.dihitung),
-          formatCurrency(totals.selisih), "",
+          formatCurrency(totals.disetor), "",
         ]],
       })
     }
@@ -780,11 +763,11 @@ export default function ReportsPage() {
         ...data.map((s) => {
           const c = shiftCells(s)
           return [c.shiftNo, c.kasir, c.cabang, c.buka, c.tutup, c.trx, c.penjualan, c.tunai,
-            c.seharusnya, c.disetor ?? "", c.sisa ?? "", c.dihitung ?? "", c.selisih ?? "", c.catatan]
+            c.saldoAwal, c.disetor ?? "", c.catatan]
         }),
         [],
         ["TOTAL", `${fmtCount(data.length)} shift`, "", "", "", totals.trx, totals.penjualan, totals.tunai,
-          "", totals.disetor, totals.sisa, totals.dihitung, totals.selisih, ""],
+          "", totals.disetor, ""],
       ]
     }
 
@@ -1271,13 +1254,12 @@ export default function ReportsPage() {
           </div>
         </TabsContent>
 
-        {/* ── Tab Shift (hitungan kas per shift) ────────────────────────── */}
+        {/* ── Tab Shift ─────────────────────────────────────────────────── */}
         <TabsContent value="shift" className="mt-4 space-y-4">
           {FilterArea}
 
           <p className="text-xs text-muted-foreground">
-            Kas seharusnya = saldo awal + penjualan tunai (transaksi yang di-refund tidak dihitung).
-            Selisih = total uang dihitung − kas seharusnya.
+            Penjualan &amp; tunai tidak menghitung transaksi yang di-refund. Uang disetor = jumlah yang diisi kasir saat tutup shift.
           </p>
 
           <div className="rounded-md border overflow-x-auto">
@@ -1318,13 +1300,8 @@ export default function ReportsPage() {
                         <TableCell className="text-sm text-center">{c.trx}</TableCell>
                         <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.penjualan)}</TableCell>
                         <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.tunai)}</TableCell>
-                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.seharusnya)}</TableCell>
-                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.disetor)}</TableCell>
-                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.sisa)}</TableCell>
-                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.dihitung)}</TableCell>
-                        <TableCell className={`text-sm text-right font-medium whitespace-nowrap ${c.selisih ? "text-destructive" : ""}`}>
-                          {c.selisih !== null && c.selisih > 0 ? "+" : ""}{rp(c.selisih)}
-                        </TableCell>
+                        <TableCell className="text-sm text-right whitespace-nowrap">{rp(c.saldoAwal)}</TableCell>
+                        <TableCell className="text-sm text-right font-medium whitespace-nowrap">{rp(c.disetor)}</TableCell>
                         <TableCell className="text-sm min-w-[160px]">{c.catatan || <span className="text-muted-foreground">-</span>}</TableCell>
                       </TableRow>
                     )
